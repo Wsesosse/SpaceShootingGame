@@ -17,7 +17,7 @@ if (!canvas) {
 canvas.width = GameFrame.width;
 canvas.height = GameFrame.height;
 
-Input.initialize();
+Input.initialize(canvas);
 ScoreSystem.reset();
 GameState.reset();
 

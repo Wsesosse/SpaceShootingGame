@@ -7,9 +7,12 @@ import { EnemyBullet } from "./EnemyBullet.js";
 import { ChargeBeam } from "./ChargeBeam.js";
 import { EnemyBeam } from "./EnemyBeam.js";
 import { EnemySlash } from "./EnemySlash.js";
+import { CryoSink } from "./CryoSink.js";
+import { Entity } from "./Entity.js";
 
 export class Renderer extends GObject {
     private ctx: CanvasRenderingContext2D;
+    private readonly spriteCache = new Map<string, HTMLImageElement | null>();
 
     constructor(
         private canvas: HTMLCanvasElement
@@ -56,22 +59,30 @@ export class Renderer extends GObject {
     private renderWorld(): void {
         for (const entity of World.entities) {
 
+            if (entity instanceof Enemy) {
+                this.drawEnemy(entity);
+                continue;
+            }
+
+            // An explicitly supplied image always takes precedence over a
+            // class's default canvas drawing. The rectangle remains visible
+            // while that image is loading or cannot be loaded.
+            if (typeof entity.sprite === "string") {
+                this.drawSpriteOrFallback(entity);
+                continue;
+            }
+
             if (entity instanceof Player) {
                 this.drawPlayer(entity);
                 continue;
             }
 
-            else if (entity instanceof Enemy) {
-                this.drawEnemy(entity);
-                continue;
-            }
-
-            else if (entity instanceof Bullet) {
+            if (entity instanceof Bullet) {
                 this.drawBullet(entity);
                 continue;
             }
 
-            else if (entity instanceof EnemyBullet) {
+            if (entity instanceof EnemyBullet) {
                 this.ctx.fillStyle = entity.beam ? "#f065ff" : "#ff6b6b";
             }
 
@@ -85,6 +96,11 @@ export class Renderer extends GObject {
                 continue;
             }
 
+            else if (entity instanceof CryoSink) {
+                this.drawCryoSink(entity);
+                continue;
+            }
+
             else if (entity instanceof ChargeBeam) {
                 this.drawChargeBeam(entity);
                 continue;
@@ -94,7 +110,7 @@ export class Renderer extends GObject {
                 this.ctx.fillStyle = "white";
             }
 
-            this.ctx.fillRect(entity.position.x, entity.position.y, entity.size.x, entity.size.y);
+            this.drawSpriteFallback(entity);
         }
     }
 
@@ -182,6 +198,66 @@ export class Renderer extends GObject {
         this.ctx.restore();
     }
 
+    private drawCryoSink(cryoSink: CryoSink): void {
+        const center = cryoSink.center;
+        const life = Math.max(0, cryoSink.remainingTime / CryoSink.duration);
+        const elapsed = 1 - life;
+
+        this.ctx.save();
+        // A compact blue-white orb, not a field-sized shield bubble. The
+        // radial pull marks show energy being drawn into the core.
+        const aura = this.ctx.createRadialGradient(
+            center.x,
+            center.y,
+            2,
+            center.x,
+            center.y,
+            46
+        );
+        aura.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+        aura.addColorStop(0.16, "rgba(186, 230, 253, 0.78)");
+        aura.addColorStop(0.46, "rgba(56, 189, 248, 0.22)");
+        aura.addColorStop(1, "rgba(56, 189, 248, 0)");
+        this.ctx.fillStyle = aura;
+        this.ctx.beginPath();
+        this.ctx.arc(center.x, center.y, 46, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.lineCap = "round";
+        for (let index = 0; index < 8; index++) {
+            const angle = index * Math.PI / 4 + elapsed * Math.PI * 2.4;
+            const pull = (elapsed * 2.8 + index * 0.173) % 1;
+            const outerRadius = 38 - pull * 18;
+            const innerRadius = Math.max(10, outerRadius - 10);
+            const alpha = 0.2 + (1 - pull) * 0.5;
+            this.ctx.strokeStyle = `rgba(186, 230, 253, ${alpha})`;
+            this.ctx.lineWidth = index % 3 === 0 ? 2.5 : 1.5;
+            this.ctx.beginPath();
+            this.ctx.moveTo(
+                center.x + Math.cos(angle) * outerRadius,
+                center.y + Math.sin(angle) * outerRadius
+            );
+            this.ctx.lineTo(
+                center.x + Math.cos(angle) * innerRadius,
+                center.y + Math.sin(angle) * innerRadius
+            );
+            this.ctx.stroke();
+        }
+
+        this.ctx.shadowColor = "#67e8f9";
+        this.ctx.shadowBlur = 20;
+        this.ctx.fillStyle = "#e0f2fe";
+        this.ctx.beginPath();
+        this.ctx.arc(center.x, center.y, 8 + life * 2, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.shadowBlur = 0;
+        this.ctx.fillStyle = "#0ea5e9";
+        this.ctx.beginPath();
+        this.ctx.arc(center.x, center.y, 4, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.restore();
+    }
+
     private drawPlayer(player: Player): void {
         const { x, y } = player.position;
         this.ctx.save();
@@ -196,7 +272,7 @@ export class Renderer extends GObject {
         this.ctx.fill();
         this.ctx.fillStyle = "#74c0fc";
         this.ctx.fillRect(-5, 14, 10, 12);
-        if (player.shieldUnlocked && player.shieldPower > 0) {
+        if (player.shieldActive) {
             this.ctx.strokeStyle = "rgba(116, 192, 252, 0.65)";
             this.ctx.lineWidth = 2;
             this.ctx.beginPath();
@@ -207,21 +283,174 @@ export class Renderer extends GObject {
     }
 
     private drawEnemy(enemy: Enemy): void {
-        const { x, y } = enemy.position;
-        const color = enemy.kind === "boss" ? "#9775fa" : enemy.kind === "blocking" ? "#ff922b" : enemy.kind === "beam" ? "#e599f7" : "#ff6b6b";
-        this.ctx.fillStyle = color;
-        this.ctx.fillRect(x, y, enemy.size.x, enemy.size.y);
-        this.ctx.fillStyle = "#fff";
-        this.ctx.fillRect(x + 7, y + 9, 5, 5);
-        this.ctx.fillRect(x + enemy.size.x - 12, y + 9, 5, 5);
-        this.drawBar(x, y - 8, enemy.size.x, 4, enemy.health / enemy.maxHealth, "#51cf66");
+        const renderedBounds = this.drawSprite(enemy);
+        const bounds = renderedBounds ?? this.spriteBounds(enemy);
+        if (!renderedBounds) {
+            this.drawEnemyFallback(enemy, bounds);
+        }
+
+        this.drawBar(
+            bounds.x,
+            bounds.y - 8,
+            bounds.width,
+            4,
+            enemy.health / enemy.maxHealth,
+            "#51cf66"
+        );
+
+        if (enemy.cryoDrainLevel > 0) {
+            const level = enemy.cryoDrainLevel;
+            this.ctx.fillStyle = `rgba(165, 243, 252, ${0.12 + level * 0.34})`;
+            this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            this.ctx.strokeStyle = `rgba(224, 242, 254, ${0.35 + level * 0.55})`;
+            this.ctx.lineWidth = 1 + level * 1.5;
+            this.ctx.strokeRect(
+                bounds.x + 1.5,
+                bounds.y + 1.5,
+                bounds.width - 3,
+                bounds.height - 3
+            );
+            // Frost fragments become denser as energy is drained.
+            this.ctx.fillStyle = `rgba(224, 242, 254, ${0.25 + level * 0.55})`;
+            this.ctx.fillRect(bounds.x + 3, bounds.y + 3, 4 + level * 4, 2);
+            this.ctx.fillRect(
+                bounds.x + bounds.width - 10,
+                bounds.y + bounds.height - 5,
+                3,
+                3 + level * 4
+            );
+        }
+
+        if (enemy.isCryoFrozen) {
+            this.ctx.fillStyle = "rgba(125, 211, 252, 0.42)";
+            this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            this.ctx.strokeStyle = "#e0f2fe";
+            this.ctx.lineWidth = 2.5;
+            this.ctx.strokeRect(bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2);
+            this.ctx.fillStyle = "rgba(240, 249, 255, 0.82)";
+            this.ctx.fillRect(
+                bounds.x + bounds.width * 0.22,
+                bounds.y + bounds.height * 0.45,
+                bounds.width * 0.56,
+                2
+            );
+        }
 
         if (enemy.kind === "blocking") {
             for (let i = 0; i < 2; i++) {
                 this.ctx.fillStyle = i < enemy.remainingShieldHits ? "#ffd43b" : "#495057";
-                this.ctx.fillRect(x + i * 10, y - 15, 7, 4);
+                this.ctx.fillRect(bounds.x + i * (bounds.width / 4), bounds.y - 15, 7, 4);
             }
         }
+    }
+
+    private drawEnemyFallback(
+        enemy: Enemy,
+        bounds: { x: number; y: number; width: number; height: number }
+    ): void {
+        const color = enemy.kind === "boss"
+            ? "#9775fa"
+            : enemy.kind === "blocking"
+                ? "#ff922b"
+                : enemy.kind === "beam"
+                    ? "#e599f7"
+                    : "#ff6b6b";
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        this.ctx.fillStyle = "#fff";
+        const eyeSize = Math.min(5, bounds.width * 0.16, bounds.height * 0.16);
+        this.ctx.fillRect(
+            bounds.x + bounds.width * 0.22,
+            bounds.y + bounds.height * 0.28,
+            eyeSize,
+            eyeSize
+        );
+        this.ctx.fillRect(
+            bounds.x + bounds.width * 0.625,
+            bounds.y + bounds.height * 0.28,
+            eyeSize,
+            eyeSize
+        );
+    }
+
+    private drawSpriteOrFallback(entity: Entity): void {
+        if (this.drawSprite(entity)) {
+            return;
+        }
+
+        this.ctx.fillStyle = "white";
+        this.drawSpriteFallback(entity);
+    }
+
+    private drawSprite(
+        entity: Entity
+    ): { x: number; y: number; width: number; height: number } | undefined {
+        if (typeof entity.sprite !== "string") {
+            return undefined;
+        }
+
+        const image = this.getSpriteImage(entity.sprite);
+        if (!image || !image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
+            return undefined;
+        }
+
+        const bounds = this.imageBounds(entity, image);
+        this.ctx.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height);
+        return bounds;
+    }
+
+    private getSpriteImage(path: string): HTMLImageElement | undefined {
+        if (this.spriteCache.has(path)) {
+            return this.spriteCache.get(path) ?? undefined;
+        }
+
+        // Keep renderer smoke tests and non-browser environments on the
+        // same rectangle fallback without throwing.
+        if (typeof Image === "undefined") {
+            this.spriteCache.set(path, null);
+            return undefined;
+        }
+
+        const image = new Image();
+        image.onerror = () => this.spriteCache.set(path, null);
+        image.src = path;
+        this.spriteCache.set(path, image);
+        return image;
+    }
+
+    private drawSpriteFallback(entity: Entity): void {
+        const bounds = this.spriteBounds(entity);
+        this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    }
+
+    private spriteBounds(entity: Entity): { x: number; y: number; width: number; height: number } {
+        if (typeof entity.sprite === "string") {
+            return {
+                x: entity.position.x,
+                y: entity.position.y,
+                width: entity.size.x,
+                height: entity.size.y
+            };
+        }
+
+        return {
+            x: entity.position.x,
+            y: entity.position.y,
+            width: entity.sprite.x,
+            height: entity.sprite.y
+        };
+    }
+
+    private imageBounds(
+        entity: Entity,
+        image: HTMLImageElement
+    ): { x: number; y: number; width: number; height: number } {
+        return {
+            x: entity.position.x + (entity.size.x - image.naturalWidth) / 2,
+            y: entity.position.y + (entity.size.y - image.naturalHeight) / 2,
+            width: image.naturalWidth,
+            height: image.naturalHeight
+        };
     }
 
     private drawBar(x: number, y: number, width: number, height: number, amount: number, color: string): void {

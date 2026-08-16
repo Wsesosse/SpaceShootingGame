@@ -1,6 +1,5 @@
 import { GameState } from "./GameState.js";
 import { GObject } from "./GObject.js";
-import { Input } from "./Input.js";
 import { Player } from "./Player.js";
 import { ScoreSystem } from "./ScoreSystem.js";
 import {
@@ -18,10 +17,17 @@ export class Trader extends GObject {
     private purchased = new Set<number>();
     private readonly stacks = new Map<TraderItemId, number>();
     private lifeRestockCount = 0;
+    /**
+     * Extra slots bought in the current shop.  They are deliberately not
+     * applied until the *next* call to open(), then that visit consumes them.
+     */
+    private queuedNextTradeSlots = 0;
     private message = "Choose an upgrade";
 
     private static readonly baseLifeRestockCost = 500;
     private static readonly lifeRestockCostGrowth = 1.7;
+    static readonly nextTradeSlotCost = 25;
+    private static readonly baseOfferSlots = 3;
 
     constructor() {
         super();
@@ -39,11 +45,17 @@ export class Trader extends GObject {
         const availableCount = eligibleIds.length - eligibleIds.filter(
             id => unavailableIds.includes(id)
         ).length;
+        // A level's extra capacity is permanent.  Bought capacity is only
+        // borrowed for this shop, so consume every queued slot before a new
+        // purchase can queue slots for the following shop.
+        const queuedSlotsForThisTrade = this.queuedNextTradeSlots;
+        this.queuedNextTradeSlots = 0;
+        const requestedSlotCount = this.permanentOfferSlots + queuedSlotsForThisTrade;
 
         this.offers = availableCount === 0
             ? []
             : TraderItemFactory.createRandomOffers(
-                Math.min(3, availableCount),
+                Math.min(requestedSlotCount, availableCount),
                 Math.random,
                 unavailableIds
             );
@@ -62,6 +74,31 @@ export class Trader extends GObject {
 
     get currentOffers(): readonly TraderItem[] {
         return this.offers;
+    }
+
+    /** Number of item cards currently displayed in this Trader visit. */
+    get offerCount(): number {
+        return this.offers.length;
+    }
+
+    /** Alias for UI code that describes cards as slots rather than offers. */
+    get currentSlotCount(): number {
+        return this.offerCount;
+    }
+
+    /** The permanent capacity earned from the current Endless level. */
+    get permanentOfferSlots(): number {
+        return Trader.baseOfferSlots + GameState.level - 1;
+    }
+
+    /** Extra slots waiting to be applied to the next Trader visit. */
+    get queuedNextTradeSlotCount(): number {
+        return this.queuedNextTradeSlots;
+    }
+
+    /** Cost of one repeatable temporary slot purchase. */
+    get nextTradeSlotPurchaseCost(): number {
+        return Trader.nextTradeSlotCost;
     }
 
     get boughtOfferIndexes(): ReadonlySet<number> {
@@ -95,45 +132,24 @@ export class Trader extends GObject {
             : null;
     }
 
-    override Update(): void {
-        if (GameState.status !== "trader") {
-            return;
-        }
-
-        for (let index = 0; index < this.offers.length; index++) {
-            if (Input.consumePress(`Digit${index + 1}`)) {
-                this.buyOffer(index);
-                return;
-            }
-        }
-
-        if (Input.consumePress("Digit4")) {
-            this.restockLife();
-            return;
-        }
-
-        if (Input.consumePress("Enter")) {
-            GameState.status = "playing";
-        }
-    }
-
-    private buyOffer(index: number): void {
+    /** Buy the card at an index. Returns whether score was spent. */
+    purchaseOffer(index: number): boolean {
         const offer = this.offers[index];
         const player = World.entities.find(entity => entity instanceof Player);
         if (!offer || !player || this.purchased.has(index)) {
-            return;
+            return false;
         }
 
         const ownedStacks = this.stackFor(offer);
         if (ownedStacks >= offer.maxStacks) {
             this.message = `${offer.name} is fully stacked`;
-            return;
+            return false;
         }
 
         const cost = TraderItemFactory.costForStack(offer, ownedStacks);
         if (!ScoreSystem.spend(cost)) {
             this.message = "Not enough score";
-            return;
+            return false;
         }
 
         offer.apply(player);
@@ -141,22 +157,47 @@ export class Trader extends GObject {
         this.stacks.set(offer.id, newStackCount);
         this.purchased.add(index);
         this.message = `${offer.name} ${newStackCount}/${offer.maxStacks} installed`;
+        return true;
     }
 
-    private restockLife(): void {
+    /** Restore one life, if the player has score and is below their cap. */
+    purchaseRestockLife(): boolean {
         if (GameState.lives >= GameState.maxLives) {
             this.message = "Lives already full";
-            return;
+            return false;
         }
 
         if (!ScoreSystem.spend(this.restockCost)) {
             this.message = "Not enough score";
-            return;
+            return false;
         }
 
         GameState.lives += 1;
         this.lifeRestockCount += 1;
         this.message = "One life restored";
+        return true;
+    }
+
+    /**
+     * Queue one more card for the next shop only. Multiple purchases stack;
+     * they never change the cards in the current Trader visit.
+     */
+    purchaseNextTradeSlot(): boolean {
+        if (!ScoreSystem.spend(Trader.nextTradeSlotCost)) {
+            this.message = "Not enough score";
+            return false;
+        }
+
+        this.queuedNextTradeSlots += 1;
+        this.message = `+1 next-trader slot queued (${this.queuedNextTradeSlots})`;
+        return true;
+    }
+
+    /** Close the shop and allow the already-prepared next wave to begin. */
+    leave(): void {
+        if (GameState.status === "trader") {
+            GameState.status = "playing";
+        }
     }
 
     override destroy(): void {

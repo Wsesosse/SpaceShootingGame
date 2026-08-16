@@ -1,6 +1,8 @@
 {
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "smoke:cryo": "npm run build && node --experimental-default-type=module test/cryo-sink.smoke.mjs",
+    "smoke:sprite": "npm run build && node --experimental-default-type=module test/sprite-api.smoke.mjs"
   },
   "dependencies": {
     "typescript": "^7.0.2"

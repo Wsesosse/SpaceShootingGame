@@ -9,6 +9,7 @@ import { EnemyBeam } from "./EnemyBeam.js";
 import { Trader } from "./Trader.js";
 
 export class WaveManager extends GObject {
+    private static readonly beamFormationSize = 5;
     private spawnCooldown = 0.7;
     private transitionTime = 0;
     private beamPath: BeamPath = this.generateBeamPath();
@@ -27,6 +28,13 @@ export class WaveManager extends GObject {
 
         if (GameState.status === "levelComplete") {
             this.advanceLevel();
+            return;
+        }
+
+        if (GameState.status === "boss") {
+            // A surviving player respawn clears every World entity, including
+            // the boss. Keep the phase intact and restore only that boss.
+            this.ensureBossPresent();
             return;
         }
 
@@ -49,7 +57,7 @@ export class WaveManager extends GObject {
 
         this.spawnCooldown -= Game.deltaTime;
         if (this.beamFormationActive && !World.entities.some(
-            entity => entity instanceof Enemy && entity.kind === "beam"
+            entity => entity instanceof Enemy && entity.alive && entity.kind === "beam"
         )) {
             this.beamFormationActive = false;
         }
@@ -105,11 +113,37 @@ export class WaveManager extends GObject {
     private startBoss(): void {
         this.clearEnemyEntities();
         GameState.status = "boss";
-        World.add(new Enemy(
+        this.spawnBoss();
+    }
+
+    /** Restores a boss only when the active boss phase has lost its entity. */
+    private ensureBossPresent(): void {
+        const bossIsAlive = World.entities.some(
+            entity =>
+                entity instanceof Enemy &&
+                entity.alive &&
+                entity.kind === "boss"
+        );
+        if (bossIsAlive) {
+            return;
+        }
+
+        // Remove the killed boss object before adding the fresh, full-health
+        // replacement. This path is intentionally not used after a real boss
+        // defeat, because that changes GameState.status to levelComplete/won.
+        World.clean();
+        this.spawnBoss();
+    }
+
+    private spawnBoss(): void {
+        const boss = new Enemy(
             { x: 340, y: -90 },
             { x: 120, y: 80 },
             "boss"
-        ));
+        );
+        // The asset is entity data; Renderer has no boss-specific path.
+        boss.sprite = "/assets/bosses/prisma.png";
+        World.add(boss);
     }
 
     private advanceLevel(): void {
@@ -152,11 +186,23 @@ export class WaveManager extends GObject {
     private spawnEnemy(): boolean {
         const kind = this.kindForWave();
         if (kind === "beam") {
-            if (this.beamFormationActive) {
+            // Beam enemies are deliberately spawned as a five-member formation.
+            // Wait until the previous formation is gone rather than filling in
+            // missing members, so the formation always stays intact.
+            if (
+                this.beamFormationActive ||
+                !this.hasCapacityForBeamFormation()
+            ) {
                 return false;
             }
             this.spawnBeamFormation();
             return true;
+        }
+
+        // Each enemy kind has its own on-screen budget. A skipped attempt is
+        // still a normal spawn tick; Update() will schedule the next one.
+        if (!this.hasCapacity(kind)) {
+            return false;
         }
 
         const size = kind === "blocking" ? { x: 40, y: 40 } : { x: 32, y: 32 };
@@ -175,7 +221,7 @@ export class WaveManager extends GObject {
         // Keep members far enough apart that their sprites, HP bars, and hitboxes never overlap.
         const spacing = 0.72;
         this.beamFormationActive = true;
-        for (let index = 0; index < 5; index++) {
+        for (let index = 0; index < WaveManager.beamFormationSize; index++) {
             const pathTime = this.waveTime - index * spacing;
             const point = this.beamPath.pointAt(pathTime);
             World.add(new Enemy(
@@ -188,7 +234,37 @@ export class WaveManager extends GObject {
         }
     }
 
-    private kindForWave(): EnemyKind {
+    private hasCapacity(kind: Exclude<EnemyKind, "boss">): boolean {
+        return this.activeEnemyCount(kind) < this.activeEnemyCap(kind);
+    }
+
+    private hasCapacityForBeamFormation(): boolean {
+        return this.activeEnemyCount("beam") + WaveManager.beamFormationSize <=
+            this.activeEnemyCap("beam");
+    }
+
+    private activeEnemyCount(kind: Exclude<EnemyKind, "boss">): number {
+        return World.entities.filter(
+            entity =>
+                entity instanceof Enemy &&
+                entity.alive &&
+                entity.kind === kind
+        ).length;
+    }
+
+    private activeEnemyCap(kind: Exclude<EnemyKind, "boss">): number {
+        if (kind === "beam") {
+            return 5;
+        }
+
+        if (kind === "basic") {
+            return GameState.specialWave ? 8 : 5;
+        }
+
+        return GameState.specialWave ? 7 : 3;
+    }
+
+    private kindForWave(): Exclude<EnemyKind, "boss"> {
         const waveInCycle = ((GameState.wave - 1) % 3) + 1;
         if (waveInCycle === 1) return "basic";
         if (waveInCycle === 2) {
@@ -199,15 +275,22 @@ export class WaveManager extends GObject {
 
     private generateBeamPath(): BeamPath {
         const shape = ["circle", "square", "triangle"][Math.floor(Math.random() * 3)];
-        // Keep the entire loop inside the play frame so its formation stays actionable.
+        // Keep each beam enemy's full 32px body inside the play frame, not
+        // merely its center point. This keeps the bouncing formation usable
+        // instead of letting members skim away beyond the frame edge.
+        const beamHalfSize = 16;
         const scale = 0.2 + Math.random() * 0.2;
         const width = GameFrame.width * scale;
         const height = GameFrame.height * scale;
         const halfWidth = width / 2;
         const halfHeight = height / 2;
+        const centerMinX = beamHalfSize + halfWidth;
+        const centerMaxX = GameFrame.width - beamHalfSize - halfWidth;
+        const centerMinY = beamHalfSize + halfHeight;
+        const centerMaxY = GameFrame.height - beamHalfSize - halfHeight;
         const start = {
-            x: halfWidth + Math.random() * (GameFrame.width - width),
-            y: halfHeight + Math.random() * (GameFrame.height - height)
+            x: centerMinX + Math.random() * (centerMaxX - centerMinX),
+            y: centerMinY + Math.random() * (centerMaxY - centerMinY)
         };
         const direction = Math.random() * Math.PI * 2;
         // The whole geometric loop moves quickly and reflects off the frame edges.
@@ -220,8 +303,8 @@ export class WaveManager extends GObject {
                 const t = ((time / loopDuration) % 1 + 1) % 1;
                 const local = this.pointOnShape(shape, t, width, height);
                 return {
-                    x: local.x + this.bounce(start.x, velocity.x, time, halfWidth, GameFrame.width - halfWidth),
-                    y: local.y + this.bounce(start.y, velocity.y, time, halfHeight, GameFrame.height - halfHeight)
+                    x: local.x + this.bounce(start.x, velocity.x, time, centerMinX, centerMaxX),
+                    y: local.y + this.bounce(start.y, velocity.y, time, centerMinY, centerMaxY)
                 };
             }
         };

@@ -1,9 +1,12 @@
+export type PointerClick = { x: number; y: number };
+
 export class Input {
     static keys = new Set<string>();
     private static pressed = new Set<string>();
     private static released = new Set<string>();
+    private static pointerClicks: PointerClick[] = [];
 
-    static initialize(): void {
+    static initialize(canvas?: HTMLCanvasElement): void {
         window.addEventListener(
             "keydown",
             event => {
@@ -21,6 +24,16 @@ export class Input {
                 this.released.add(event.code);
             }
         );
+
+        if (canvas) {
+            canvas.addEventListener("pointerup", event => {
+                const bounds = canvas.getBoundingClientRect();
+                this.pointerClicks.push({
+                    x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+                    y: (event.clientY - bounds.top) * canvas.height / bounds.height
+                });
+            });
+        }
     }
 
     static down(key: string): boolean {
@@ -39,9 +52,34 @@ export class Input {
         return wasReleased;
     }
 
+    /** Consumes the oldest click that falls inside a canvas-space rectangle. */
+    static consumeClickIn(
+        x: number,
+        y: number,
+        width: number,
+        height: number
+    ): boolean {
+        const index = this.pointerClicks.findIndex(click =>
+            click.x >= x && click.x <= x + width &&
+            click.y >= y && click.y <= y + height
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        this.pointerClicks.splice(index, 1);
+        return true;
+    }
+
+    /** Consumes one pointer click, if one occurred since the previous frame. */
+    static consumeClick(): PointerClick | undefined {
+        return this.pointerClicks.shift();
+    }
+
     static clear(): void {
         this.keys.clear();
         this.pressed.clear();
         this.released.clear();
+        this.pointerClicks = [];
     }
 }

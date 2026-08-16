@@ -9,6 +9,8 @@ import { ChargeBeam } from "./ChargeBeam.js";
 import { EnemyBeam } from "./EnemyBeam.js";
 import { GameState } from "./GameState.js";
 import { EnemySlash } from "./EnemySlash.js";
+import { CryoSink } from "./CryoSink.js";
+import { Game } from "./Game.js";
 
 export class CollisionManager extends GObject {
     override Update(): void {
@@ -16,6 +18,11 @@ export class CollisionManager extends GObject {
     }
 
     private checkCollisions(): void {
+        // Resolve the Cryo Sink before ordinary collisions. This prevents a
+        // pre-existing bullet from winning merely because it was inserted
+        // into World before the defensive sink.
+        this.applyCryoSinkEffects();
+
         for (const a of World.entities) {
             for (const b of World.entities) {
                 if (a === b) {
@@ -37,10 +44,38 @@ export class CollisionManager extends GObject {
         World.clean();
     }
 
+    private applyCryoSinkEffects(): void {
+        const cryoSinks = World.entities.filter(
+            (entity): entity is CryoSink => entity instanceof CryoSink && entity.alive
+        );
+
+        for (const cryoSink of cryoSinks) {
+            for (const target of World.entities) {
+                if (
+                    !target.alive ||
+                    target === cryoSink ||
+                    !cryoSink.overlapsField(target)
+                ) {
+                    continue;
+                }
+
+                if (target instanceof Enemy) {
+                    target.applyCryoExposure(Game.deltaTime);
+                } else if (target instanceof EnemyBullet && !target.beam) {
+                    // A normal projectile is discrete energy and is drained
+                    // immediately. EnemyBeam is intentionally not matched.
+                    target.kill();
+                }
+            }
+        }
+    }
+
     private overlap(
         a: Entity,
         b: Entity
     ): boolean {
+        if (a instanceof CryoSink) return a.overlapsField(b);
+        if (b instanceof CryoSink) return b.overlapsField(a);
         if (a instanceof ChargeBeam) return this.beamOverlaps(a, b);
         if (b instanceof ChargeBeam) return this.beamOverlaps(b, a);
 
@@ -98,6 +133,13 @@ export class CollisionManager extends GObject {
             a instanceof EnemyBullet &&
             b instanceof Player
         ) {
+            // Collision pairs are evaluated in insertion order.  A bullet can
+            // encounter Player before it encounters a newly-created Cryo Sink, so
+            // check the field here as well to make the block reliable.
+            if (this.blockedByCryoSink(a)) {
+                a.kill();
+                return;
+            }
             b.takeHit(a.damage);
             a.kill();
         }
@@ -120,10 +162,24 @@ export class CollisionManager extends GObject {
         if (
             a instanceof Enemy &&
             b instanceof Player &&
-            a.kind !== "blocking"
+            a.kind !== "blocking" &&
+            !a.isCryoFrozen
         ) {
             const baseDamage = a.kind === "boss" ? 40 : 30;
             b.takeHit(Math.round(baseDamage * GameState.enemyDamageMultiplier));
         }
+    }
+
+    private blockedByCryoSink(bullet: EnemyBullet): boolean {
+        if (bullet.beam) {
+            return false;
+        }
+
+        return World.entities.some(
+            entity =>
+                entity instanceof CryoSink &&
+                entity.alive &&
+                entity.overlapsField(bullet)
+        );
     }
 }

@@ -16,6 +16,15 @@ export type BeamPath = {
 };
 
 export class Enemy extends Entity {
+    /** Seconds of continuous Cryo Sink exposure needed to fully freeze. */
+    static readonly cryoBuildDuration = 0.7;
+    /** A fully drained enemy is frozen for this long before it can recover. */
+    static readonly cryoFreezeDuration = 1;
+    /** Drain level lost per second after leaving the Cryo Sink field. */
+    static readonly cryoDrainDecayPerSecond = 0.85;
+    /** At maximum pre-freeze drain, movement and attack timers run at 40%. */
+    static readonly minimumCryoTimeScale = 0.4;
+
     health: number;
     readonly maxHealth: number;
     speed: number;
@@ -24,12 +33,36 @@ export class Enemy extends Entity {
     private pathTime = 0;
     private slashCooldown = 0;
     private activeSlash?: EnemySlash;
+    private cryoEnergyDrain = 0;
+    private cryoFreezeTime = 0;
+    private cryoExposedThisFrame = false;
 
     private readonly slashAttackRange = 92;
     private readonly slashCooldownDuration = 1.35;
 
     get remainingShieldHits(): number {
         return this.shieldHits;
+    }
+
+    /** 0–1 charge showing how much energy the Cryo Sink has drained. */
+    get cryoDrainLevel(): number {
+        return this.cryoEnergyDrain;
+    }
+
+    get isCryoFrozen(): boolean {
+        return this.cryoFreezeTime > 0;
+    }
+
+    get cryoFreezeRemaining(): number {
+        return this.cryoFreezeTime;
+    }
+
+    /** Movement and attack cooldown rate after the current cryo drain. */
+    get cryoTimeScale(): number {
+        if (this.isCryoFrozen) {
+            return 0;
+        }
+        return 1 - this.cryoEnergyDrain * (1 - Enemy.minimumCryoTimeScale);
     }
 
     constructor(
@@ -50,10 +83,23 @@ export class Enemy extends Entity {
     }
 
     override Update(): void {
+        if (!this.alive) {
+            return;
+        }
+
+        const frozenThisFrame = this.updateCryoState();
+
         if (
             GameState.status !== "playing" &&
             GameState.status !== "boss"
         ) {
+            return;
+        }
+
+        if (frozenThisFrame || this.isCryoFrozen) {
+            // A fully drained enemy cannot move, fire, or complete a melee
+            // swing. Enemy beam projectiles are separately exempted by
+            // CollisionManager.
             return;
         }
 
@@ -66,11 +112,43 @@ export class Enemy extends Entity {
         this.shoot();
     }
 
+    /**
+     * Applies one frame of Cryo Sink exposure.  Reaching a full drain starts a
+     * single one-second freeze and resets the build-up, rather than refreshing
+     * an infinite stun every collision frame.
+     */
+    applyCryoExposure(duration: number): void {
+        if (duration <= 0 || !this.alive) {
+            return;
+        }
+
+        this.cryoExposedThisFrame = true;
+        if (this.isCryoFrozen) {
+            return;
+        }
+
+        this.cryoEnergyDrain = Math.min(
+            1,
+            this.cryoEnergyDrain + duration / Enemy.cryoBuildDuration
+        );
+
+        if (this.cryoEnergyDrain < 1) {
+            return;
+        }
+
+        this.cryoEnergyDrain = 0;
+        this.cryoFreezeTime = Enemy.cryoFreezeDuration;
+        // A slash is an attack already in progress, so cancel it when its
+        // owner freezes rather than allowing it to land during the freeze.
+        this.activeSlash?.kill();
+        this.activeSlash = undefined;
+    }
+
     private shoot(): void {
         // Blocking enemies use EnemySlash for melee attacks and never fire.
         if (this.kind === "blocking") return;
 
-        this.shootCooldown -= Game.deltaTime;
+        this.shootCooldown -= Game.deltaTime * this.cryoTimeScale;
         if (this.shootCooldown > 0) return;
 
         const player = World.entities.find(entity => entity instanceof Player);
@@ -103,16 +181,17 @@ export class Enemy extends Entity {
     }
 
     private move(): void {
+        const delta = Game.deltaTime * this.cryoTimeScale;
         if (this.kind === "boss") {
-            this.position.y = Math.min(80, this.position.y + this.speed * Game.deltaTime);
+            this.position.y = Math.min(80, this.position.y + this.speed * delta);
             return;
         }
 
         this.position.y +=
-            this.speed * Game.deltaTime;
+            this.speed * delta;
 
         if (this.kind === "beam" && this.beamPath) {
-            this.pathTime += Game.deltaTime;
+            this.pathTime += delta;
             const point = this.beamPath.pointAt(this.pathTime);
             this.position.x = point.x - this.size.x / 2;
             this.position.y = point.y - this.size.y / 2;
@@ -125,7 +204,8 @@ export class Enemy extends Entity {
     }
 
     private updateBlockingBehavior(): void {
-        this.slashCooldown = Math.max(0, this.slashCooldown - Game.deltaTime);
+        const delta = Game.deltaTime * this.cryoTimeScale;
+        this.slashCooldown = Math.max(0, this.slashCooldown - delta);
 
         const player = this.findPlayer();
         if (!player) return;
@@ -149,9 +229,33 @@ export class Enemy extends Entity {
             return;
         }
 
-        this.position.x += direction.x / distance * this.speed * Game.deltaTime;
-        this.position.y += direction.y / distance * this.speed * Game.deltaTime;
+        this.position.x += direction.x / distance * this.speed * delta;
+        this.position.y += direction.y / distance * this.speed * delta;
         this.keepInsideFrame();
+    }
+
+    private updateCryoState(): boolean {
+        const exposed = this.cryoExposedThisFrame;
+        this.cryoExposedThisFrame = false;
+
+        if (this.isCryoFrozen) {
+            this.cryoFreezeTime = Math.max(
+                0,
+                this.cryoFreezeTime - Game.deltaTime
+            );
+            // Do not build another freeze charge on the exact frame a freeze
+            // ends. A continued field needs to drain the enemy again first.
+            return true;
+        }
+
+        if (!exposed) {
+            this.cryoEnergyDrain = Math.max(
+                0,
+                this.cryoEnergyDrain - Game.deltaTime * Enemy.cryoDrainDecayPerSecond
+            );
+        }
+
+        return false;
     }
 
     private findPlayer(): Player | undefined {

@@ -1,6 +1,7 @@
 export type GameMode = "tutorial" | "endless";
 export type GameStatus =
     | "menu"
+    | "tutorialIntro"
     | "playing"
     | "betweenWaves"
     | "trader"
@@ -49,7 +50,7 @@ export class GameState {
         this.specialWave = false;
         this.maxLives = 3;
         this.lives = 3;
-        this.status = "playing";
+        this.status = mode === "tutorial" ? "tutorialIntro" : "playing";
         this.abilities.clear();
         this.beginWave();
     }

@@ -8,19 +8,17 @@ import { World } from "./World.js";
 import { Trader } from "./Trader.js";
 
 export class SessionManager extends GObject {
+    static current: SessionManager | null = null;
     private waveManager: WaveManager | null = null;
     private trader: Trader | null = null;
 
+    constructor() {
+        super();
+        SessionManager.current = this;
+    }
+
     override Update(): void {
         if (GameState.status === "menu") {
-            if (Input.consumePress("Digit1")) {
-                this.start("tutorial");
-            }
-
-            if (Input.consumePress("Digit2")) {
-                this.start("endless");
-            }
-
             return;
         }
 
@@ -38,6 +36,15 @@ export class SessionManager extends GObject {
         ) {
             this.returnToMenu();
         }
+    }
+
+    /** Called by the mouse-driven Menu UI. */
+    startMode(mode: GameMode): void {
+        if (GameState.status !== "menu") {
+            return;
+        }
+
+        this.start(mode);
     }
 
     private start(mode: GameMode): void {
@@ -63,5 +70,13 @@ export class SessionManager extends GObject {
         this.trader?.destroy();
         this.trader = null;
         World.reset();
+    }
+
+    override destroy(): void {
+        if (SessionManager.current === this) {
+            SessionManager.current = null;
+        }
+        this.disposeRun();
+        super.destroy();
     }
 }
