@@ -1,4 +1,5 @@
 import { GameMode, GameState } from "./GameState.js";
+import { Game } from "./Game.js";
 import { GObject } from "./GObject.js";
 import { Input } from "./Input.js";
 import { Player } from "./Player.js";
@@ -18,6 +19,16 @@ export class SessionManager extends GObject {
     }
 
     override Update(): void {
+        if (this.canPause() && this.consumePauseToggle()) {
+            Game.pause();
+            // Do not let the key used to pause turn into a game action after
+            // resuming, and discard clicks made during the transition. Keep
+            // held keys known so browser key-repeat cannot instantly toggle
+            // pause again.
+            Input.clearTransient();
+            return;
+        }
+
         if (GameState.status === "menu") {
             return;
         }
@@ -36,6 +47,27 @@ export class SessionManager extends GObject {
         ) {
             this.returnToMenu();
         }
+    }
+
+    /** Receives only the paused Game signal; normal simulation stays frozen. */
+    override UpdatePaused(): void {
+        if (this.consumePauseToggle()) {
+            Game.resume();
+        }
+
+        // Ignore gameplay keys/clicks accumulated during the rest period.
+        Input.clearTransient();
+    }
+
+    private canPause(): boolean {
+        return GameState.status === "playing" ||
+            GameState.status === "betweenWaves" ||
+            GameState.status === "boss" ||
+            GameState.status === "levelComplete";
+    }
+
+    private consumePauseToggle(): boolean {
+        return Input.consumePress("Escape") || Input.consumePress("KeyP");
     }
 
     /** Called by the mouse-driven Menu UI. */

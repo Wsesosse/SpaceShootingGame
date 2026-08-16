@@ -7,6 +7,8 @@ import { Trader } from "./Trader.js";
 import { MAX_PENETRATION_STACKS } from "./TraderItem.js";
 import { Input } from "./Input.js";
 import { SessionManager } from "./SessionManager.js";
+import { Game } from "./Game.js";
+import { PrismaBoss } from "./PrismaBoss.js";
 
 export class UI extends GObject {
     private readonly ctx: CanvasRenderingContext2D;
@@ -53,6 +55,10 @@ export class UI extends GObject {
 
         const player = World.entities.find(entity => entity instanceof Player);
         if (player) this.drawPlayerStatus(player);
+        const prisma = World.entities.find(
+            (entity): entity is PrismaBoss => entity instanceof PrismaBoss
+        );
+        if (prisma) this.drawPrismaStatus(prisma);
 
         const progress = this.progressText();
         this.ctx.textAlign = "right";
@@ -60,6 +66,10 @@ export class UI extends GObject {
         this.ctx.textAlign = "start";
 
         if (player) this.drawAbilities(player);
+
+        if (this.isActiveRunPhase()) {
+            this.drawPauseHint();
+        }
 
         if (GameState.status === "betweenWaves") {
             const text = this.waveClearText();
@@ -77,6 +87,27 @@ export class UI extends GObject {
         if (GameState.status === "won") {
             this.message("YOU WIN — Enter: retry  •  Esc: menu");
         }
+    }
+
+    override UpdatePaused(): void {
+        // SessionManager is registered first and may resume during this same
+        // PauseSignal. Draw a normal HUD then, without a stale overlay.
+        if (!Game.paused) {
+            this.Update();
+            return;
+        }
+
+        // Pause is only allowed in active run phases. This guard means a
+        // future caller cannot make menu/trader click handlers interactive
+        // while the simulation is frozen.
+        if (!this.isActiveRunPhase()) {
+            return;
+        }
+
+        this.Update();
+        // The world and HUD stay visible behind this so the player can
+        // immediately re-orient themselves when they resume.
+        this.drawPauseOverlay();
     }
 
     private drawPanel(): void {
@@ -152,21 +183,73 @@ export class UI extends GObject {
         this.ctx.fillText("Nearby enemies chill, slow, then freeze", 400, 303);
         this.ctx.fillStyle = "#adb5bd";
         this.ctx.font = "15px sans-serif";
-        this.ctx.fillText("Clear wave 1 to unlock K Repair", 400, 338);
-        this.ctx.fillText("Clear wave 2 to unlock L Shield", 400, 365);
-        this.ctx.fillText("Clear wave 3 to unlock J Charge Beam", 400, 392);
+        this.ctx.fillText("Esc / P — pause the run", 400, 326);
+        this.ctx.fillText("Clear wave 1 to unlock K Repair", 400, 352);
+        this.ctx.fillText("Clear wave 2 to unlock L Shield", 400, 379);
+        this.ctx.fillText("Clear wave 3 to unlock J Charge Beam", 400, 406);
 
         this.ctx.fillStyle = "rgba(18, 72, 132, 0.95)";
-        this.ctx.fillRect(225, 422, 350, 56);
+        this.ctx.fillRect(225, 432, 350, 56);
         this.ctx.strokeStyle = "#74c0fc";
-        this.ctx.strokeRect(225, 422, 350, 56);
+        this.ctx.strokeRect(225, 432, 350, 56);
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.font = "bold 19px sans-serif";
-        this.ctx.fillText("CLICK TO START WAVE 1", 400, 457);
+        this.ctx.fillText("CLICK TO START WAVE 1", 400, 467);
         const click = Input.consumeClick();
-        if (click && this.inRect(click, 225, 422, 350, 56)) {
+        if (click && this.inRect(click, 225, 432, 350, 56)) {
             GameState.status = "playing";
         }
+        this.ctx.restore();
+    }
+
+    private isActiveRunPhase(): boolean {
+        return GameState.status === "playing" ||
+            GameState.status === "betweenWaves" ||
+            GameState.status === "boss" ||
+            GameState.status === "levelComplete";
+    }
+
+    private drawPauseHint(): void {
+        this.ctx.save();
+        this.ctx.fillStyle = "#adb5bd";
+        this.ctx.font = "11px sans-serif";
+        this.ctx.textAlign = "right";
+        this.ctx.fillText("ESC / P — PAUSE", 776, 56);
+        this.ctx.restore();
+    }
+
+    private drawPauseOverlay(): void {
+        const overlayWidth = 420;
+        const overlayHeight = 174;
+        const overlayX = (this.canvas.width - overlayWidth) / 2;
+        const overlayY = (this.canvas.height - overlayHeight) / 2;
+
+        this.ctx.save();
+        this.ctx.fillStyle = "rgba(3, 6, 16, 0.72)";
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.fillStyle = "rgba(8, 16, 39, 0.96)";
+        this.ctx.fillRect(overlayX, overlayY, overlayWidth, overlayHeight);
+        this.ctx.strokeStyle = "#4dabf7";
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(overlayX, overlayY, overlayWidth, overlayHeight);
+
+        this.ctx.textAlign = "center";
+        this.ctx.fillStyle = "#e7f5ff";
+        this.ctx.font = "bold 38px sans-serif";
+        this.ctx.fillText("PAUSED", this.canvas.width / 2, overlayY + 64);
+        this.ctx.strokeStyle = "rgba(116, 192, 252, 0.45)";
+        this.ctx.lineWidth = 1;
+        this.ctx.beginPath();
+        this.ctx.moveTo(overlayX + 48, overlayY + 88);
+        this.ctx.lineTo(overlayX + overlayWidth - 48, overlayY + 88);
+        this.ctx.stroke();
+        this.ctx.fillStyle = "#adb5bd";
+        this.ctx.font = "16px sans-serif";
+        this.ctx.fillText("The game is frozen", this.canvas.width / 2, overlayY + 119);
+        this.ctx.fillStyle = "#f8f9fa";
+        this.ctx.font = "bold 17px sans-serif";
+        this.ctx.fillText("Esc / P — resume", this.canvas.width / 2, overlayY + 150);
         this.ctx.restore();
     }
 
@@ -375,7 +458,11 @@ export class UI extends GObject {
         let image = this.traderIcons.get(path);
         if (!image) {
             image = new Image();
-            image.src = `./${path}`;
+            // Trader icons use the same root-absolute SpritePath convention
+            // as Entity visuals. Do not prefix this with "./": that turns an
+            // asset path into a route-relative URL when the game is hosted
+            // below a directory.
+            image.src = path;
             this.traderIcons.set(path, image);
         }
 
@@ -422,6 +509,26 @@ export class UI extends GObject {
             this.ctx.fillStyle = "#74c0fc";
             this.ctx.fillText("IFRAME", 218, 578);
         }
+    }
+
+    /** Small top-centre readout: the boss HUD must not obscure the play field. */
+    private drawPrismaStatus(prisma: PrismaBoss): void {
+        const x = 290;
+        const y = 8;
+        const width = 220;
+
+        this.ctx.save();
+        this.ctx.fillStyle = "#f3f0ff";
+        this.ctx.font = "bold 11px sans-serif";
+        this.ctx.textAlign = "center";
+        this.ctx.fillText(
+            `PRISMA HP  ${Math.ceil(prisma.health)} / ${prisma.maxHealth}`,
+            x + width / 2,
+            y + 11
+        );
+        this.bar(x, y + 16, width, 6, prisma.health / prisma.maxHealth, "#b197fc");
+        this.ctx.textAlign = "start";
+        this.ctx.restore();
     }
 
     private drawSpecialWaveNotice(): void {

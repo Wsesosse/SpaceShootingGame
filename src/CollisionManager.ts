@@ -11,6 +11,8 @@ import { GameState } from "./GameState.js";
 import { EnemySlash } from "./EnemySlash.js";
 import { CryoSink } from "./CryoSink.js";
 import { Game } from "./Game.js";
+import { PrismaBeam } from "./PrismaBeam.js";
+import { PrismaBoss } from "./PrismaBoss.js";
 
 export class CollisionManager extends GObject {
     override Update(): void {
@@ -18,6 +20,12 @@ export class CollisionManager extends GObject {
     }
 
     private checkCollisions(): void {
+        // Prisma beams are line segments rather than rectangular entities.
+        // Resolve them before ordinary pair collisions so an active wipe beam
+        // removes intersecting player bullets before those bullets can damage
+        // something else later in this collision pass.
+        this.applyPrismaBeamEffects();
+
         // Resolve the Cryo Sink before ordinary collisions. This prevents a
         // pre-existing bullet from winning merely because it was inserted
         // into World before the defensive sink.
@@ -42,6 +50,43 @@ export class CollisionManager extends GObject {
         }
 
         World.clean();
+    }
+
+    private applyPrismaBeamEffects(): void {
+        const beams = World.entities.filter(
+            (entity): entity is PrismaBeam =>
+                entity instanceof PrismaBeam && entity.alive && entity.isActive
+        );
+
+        for (const beam of beams) {
+            // Take one live modifier snapshot for this beam's collision pass.
+            // This keeps its width, damage, and wipe behavior coherent even if
+            // the boss changes state immediately after this frame.
+            const values = beam.currentValues;
+
+            for (const target of World.entities) {
+                if (!target.alive || target === beam) {
+                    continue;
+                }
+
+                if (
+                    target instanceof Player &&
+                    values.damage > 0 &&
+                    beam.overlapsEntity(target, values.width)
+                ) {
+                    target.takeHit(values.damage);
+                    continue;
+                }
+
+                if (
+                    target instanceof Bullet &&
+                    values.wipePlayerBullets &&
+                    beam.overlapsEntity(target, values.width)
+                ) {
+                    target.kill();
+                }
+            }
+        }
     }
 
     private applyCryoSinkEffects(): void {
@@ -123,6 +168,13 @@ export class CollisionManager extends GObject {
         }
 
         if (
+            a instanceof ChargeBeam &&
+            b instanceof PrismaBoss
+        ) {
+            // Prisma reflects the Charge Beam: one pulse heals instead of
+            // dealing damage and refreshes its five-second beam-fury state.
+            if (a.tryHit(b)) b.absorbChargeBeamHit(10);
+        } else if (
             a instanceof ChargeBeam &&
             b instanceof Enemy
         ) {

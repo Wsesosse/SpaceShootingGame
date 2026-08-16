@@ -234,7 +234,11 @@ export class Enemy extends Entity {
         this.keepInsideFrame();
     }
 
-    private updateCryoState(): boolean {
+    /**
+     * Specialized enemies that replace the normal Enemy.Update() loop still
+     * call this first, so Cryo Sink keeps the same slow/freeze contract.
+     */
+    protected updateCryoState(): boolean {
         const exposed = this.cryoExposedThisFrame;
         this.cryoExposedThisFrame = false;
 

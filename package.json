@@ -1,8 +1,10 @@
 {
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/generate-sprite-manifest.mjs && tsc",
     "smoke:cryo": "npm run build && node --experimental-default-type=module test/cryo-sink.smoke.mjs",
-    "smoke:sprite": "npm run build && node --experimental-default-type=module test/sprite-api.smoke.mjs"
+    "smoke:sprite": "npm run build && node --experimental-default-type=module test/sprite-api.smoke.mjs",
+    "smoke:scheduler": "npm run build && node --experimental-default-type=module test/action-scheduler.smoke.mjs",
+    "smoke:prisma": "npm run build && node --experimental-default-type=module test/prisma-boss.smoke.mjs"
   },
   "dependencies": {
     "typescript": "^7.0.2"

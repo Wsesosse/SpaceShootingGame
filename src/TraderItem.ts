@@ -25,14 +25,14 @@ export const STARTER_TRADER_ITEM_IDS: readonly TraderItemId[] = [
 ];
 
 export type TraderItemIconPath =
-    | "assets/trader-items/red-gem.png"
-    | "assets/trader-items/heart-gem.png"
-    | "assets/trader-items/shield.png"
-    | "assets/trader-items/blue-diamond.png"
-    | "assets/trader-items/mechanical-gear.png"
-    | "assets/trader-items/damage-bullet.png"
-    | "assets/trader-items/homing-bullet.png"
-    | "assets/trader-items/penetration-bullet.png";
+    | "/assets/trader-items/red-gem.png"
+    | "/assets/trader-items/heart-gem.png"
+    | "/assets/trader-items/shield.png"
+    | "/assets/trader-items/blue-diamond.png"
+    | "/assets/trader-items/mechanical-gear.png"
+    | "/assets/trader-items/damage-bullet.png"
+    | "/assets/trader-items/homing-bullet.png"
+    | "/assets/trader-items/penetration-bullet.png";
 
 /**
  * The game-side contract for applying an upgrade.  Player/GameState can
@@ -65,6 +65,7 @@ export interface TraderItem {
 
 export const MAX_STANDARD_BUFF_STACKS = 10;
 export const MAX_PENETRATION_STACKS = 2;
+export const MAX_HOMING_STACKS = 1;
 
 const STANDARD_COST_GROWTH = 1.45;
 
@@ -76,7 +77,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         cost: 325,
         maxStacks: MAX_STANDARD_BUFF_STACKS,
         costGrowth: STANDARD_COST_GROWTH,
-        iconPath: "assets/trader-items/red-gem.png",
+        iconPath: "/assets/trader-items/red-gem.png",
         apply: target => target.increaseMaxHealth(25)
     },
     maxLives: {
@@ -86,7 +87,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         cost: 800,
         maxStacks: MAX_STANDARD_BUFF_STACKS,
         costGrowth: STANDARD_COST_GROWTH,
-        iconPath: "assets/trader-items/heart-gem.png",
+        iconPath: "/assets/trader-items/heart-gem.png",
         apply: target => target.increaseMaxLives(1)
     },
     shieldArmor: {
@@ -96,7 +97,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         cost: 320,
         maxStacks: MAX_STANDARD_BUFF_STACKS,
         costGrowth: STANDARD_COST_GROWTH,
-        iconPath: "assets/trader-items/shield.png",
+        iconPath: "/assets/trader-items/shield.png",
         apply: target => target.increaseShieldArmor(2)
     },
     beamWidth: {
@@ -106,7 +107,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         cost: 400,
         maxStacks: MAX_STANDARD_BUFF_STACKS,
         costGrowth: STANDARD_COST_GROWTH,
-        iconPath: "assets/trader-items/blue-diamond.png",
+        iconPath: "/assets/trader-items/blue-diamond.png",
         apply: target => target.increaseBeamWidth(8)
     },
     toggleCharge: {
@@ -118,7 +119,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         // would have no gameplay effect, so it intentionally remains unique.
         maxStacks: 1,
         costGrowth: 1,
-        iconPath: "assets/trader-items/mechanical-gear.png",
+        iconPath: "/assets/trader-items/mechanical-gear.png",
         apply: target => target.enableToggleCharge()
     },
     bulletDamage: {
@@ -128,7 +129,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         cost: 500,
         maxStacks: MAX_STANDARD_BUFF_STACKS,
         costGrowth: STANDARD_COST_GROWTH,
-        iconPath: "assets/trader-items/damage-bullet.png",
+        iconPath: "/assets/trader-items/damage-bullet.png",
         apply: target => target.increaseBulletDamage(5)
     },
     homingBullets: {
@@ -136,9 +137,9 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         name: "Homing Bullet",
         description: "Sharper bullet homing",
         cost: 1500,
-        maxStacks: MAX_STANDARD_BUFF_STACKS,
+        maxStacks: MAX_HOMING_STACKS,
         costGrowth: 1.5,
-        iconPath: "assets/trader-items/homing-bullet.png",
+        iconPath: "/assets/trader-items/homing-bullet.png",
         apply: target => target.enableHomingBullets()
     },
     bulletPenetration: {
@@ -148,7 +149,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
         cost: 750,
         maxStacks: MAX_PENETRATION_STACKS,
         costGrowth: 1.7,
-        iconPath: "assets/trader-items/penetration-bullet.png",
+        iconPath: "/assets/trader-items/penetration-bullet.png",
         apply: target => target.increaseBulletPenetration(1)
     }
 };

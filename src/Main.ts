@@ -21,9 +21,11 @@ Input.initialize(canvas);
 ScoreSystem.reset();
 GameState.reset();
 
+// Register pause input first, so it can stop the frame before collision or
+// simulation objects receive their normal update.
+new SessionManager();
 new CollisionManager();
 new Renderer(canvas);
 new UI(canvas);
-new SessionManager();
 
 Game.start();

@@ -78,6 +78,15 @@ export class Input {
 
     static clear(): void {
         this.keys.clear();
+        this.clearTransient();
+    }
+
+    /**
+     * Discards one-frame input without forgetting which physical keys remain
+     * held. This is essential around pause toggles: clearing `keys` would let
+     * the browser's key-repeat turn one held P/Escape into repeated toggles.
+     */
+    static clearTransient(): void {
         this.pressed.clear();
         this.released.clear();
         this.pointerClicks = [];

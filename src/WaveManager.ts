@@ -7,6 +7,9 @@ import { World } from "./World.js";
 import { EnemyBullet } from "./EnemyBullet.js";
 import { EnemyBeam } from "./EnemyBeam.js";
 import { Trader } from "./Trader.js";
+import { PrismaBoss } from "./PrismaBoss.js";
+import { PRISMA_DEFINITION } from "./PrismaDefinition.js";
+import { PrismaBeam } from "./PrismaBeam.js";
 
 export class WaveManager extends GObject {
     private static readonly beamFormationSize = 5;
@@ -136,13 +139,10 @@ export class WaveManager extends GObject {
     }
 
     private spawnBoss(): void {
-        const boss = new Enemy(
-            { x: 340, y: -90 },
-            { x: 120, y: 80 },
-            "boss"
-        );
-        // The asset is entity data; Renderer has no boss-specific path.
-        boss.sprite = "/assets/bosses/prisma.png";
+        const boss = new PrismaBoss({
+            x: GameFrame.width / 2 - PRISMA_DEFINITION.bodySize.x / 2,
+            y: -PRISMA_DEFINITION.bodySize.y
+        });
         World.add(boss);
     }
 
@@ -166,7 +166,8 @@ export class WaveManager extends GObject {
             if (
                 (entity instanceof Enemy && entity.kind !== "boss") ||
                 entity instanceof EnemyBullet ||
-                entity instanceof EnemyBeam
+                entity instanceof EnemyBeam ||
+                entity instanceof PrismaBeam
             ) {
                 entity.kill();
             }
@@ -176,7 +177,11 @@ export class WaveManager extends GObject {
 
     private clearEnemyProjectiles(): void {
         for (const entity of World.entities) {
-            if (entity instanceof EnemyBullet || entity instanceof EnemyBeam) {
+            if (
+                entity instanceof EnemyBullet ||
+                entity instanceof EnemyBeam ||
+                entity instanceof PrismaBeam
+            ) {
                 entity.kill();
             }
         }

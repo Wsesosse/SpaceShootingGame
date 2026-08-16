@@ -9,6 +9,8 @@ import { EnemyBeam } from "./EnemyBeam.js";
 import { EnemySlash } from "./EnemySlash.js";
 import { CryoSink } from "./CryoSink.js";
 import { Entity } from "./Entity.js";
+import type { Sprite } from "./Entity.js";
+import { PrismaBeam } from "./PrismaBeam.js";
 
 export class Renderer extends GObject {
     private ctx: CanvasRenderingContext2D;
@@ -37,6 +39,11 @@ export class Renderer extends GObject {
         this.renderWorld();
     }
 
+    /** Keep redrawing the frozen scene underneath UI's pause overlay. */
+    override UpdatePaused(): void {
+        this.Update();
+    }
+
     private clear(): void {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
@@ -59,15 +66,21 @@ export class Renderer extends GObject {
     private renderWorld(): void {
         for (const entity of World.entities) {
 
+            if (entity instanceof PrismaBeam) {
+                this.drawPrismaBeam(entity);
+                continue;
+            }
+
             if (entity instanceof Enemy) {
                 this.drawEnemy(entity);
                 continue;
             }
 
-            // An explicitly supplied image always takes precedence over a
-            // class's default canvas drawing. The rectangle remains visible
-            // while that image is loading or cannot be loaded.
-            if (typeof entity.sprite === "string") {
+            // An animation frame takes precedence over a static image, and
+            // either image visual takes precedence over a class's default
+            // canvas drawing. The rectangle remains visible while that image
+            // is loading or cannot be loaded.
+            if (typeof this.effectiveSprite(entity) === "string") {
                 this.drawSpriteOrFallback(entity);
                 continue;
             }
@@ -124,6 +137,75 @@ export class Renderer extends GObject {
         this.ctx.stroke();
         this.ctx.strokeStyle = "#e7f5ff";
         this.ctx.lineWidth = beam.thickness;
+        this.ctx.stroke();
+        this.ctx.restore();
+    }
+
+    private drawPrismaBeam(beam: PrismaBeam): void {
+        const { start, end } = beam.segment;
+        const { width } = beam.currentValues;
+        if (width <= 0) {
+            return;
+        }
+
+        this.ctx.save();
+        this.ctx.lineCap = "round";
+
+        if (beam.isTelegraphing) {
+            // Every Prisma attack announces its exact segment first. Keep this
+            // a thin red line so the active width remains visually distinct.
+            this.ctx.strokeStyle = "rgba(255, 77, 79, 0.96)";
+            this.ctx.lineWidth = Math.max(2, Math.min(5, width * 0.22));
+            this.ctx.setLineDash([8, 5]);
+            this.ctx.shadowColor = "rgba(255, 77, 79, 0.75)";
+            this.ctx.shadowBlur = 8;
+            this.ctx.beginPath();
+            this.ctx.moveTo(start.x, start.y);
+            this.ctx.lineTo(end.x, end.y);
+            this.ctx.stroke();
+            this.ctx.restore();
+            return;
+        }
+
+        const gradientEndX = start.x === end.x && start.y === end.y
+            ? end.x + 0.01
+            : end.x;
+        const gradient = this.ctx.createLinearGradient(
+            start.x,
+            start.y,
+            gradientEndX,
+            end.y
+        );
+        gradient.addColorStop(0, "rgba(103, 232, 249, 0.2)");
+        gradient.addColorStop(0.35, "#a78bfa");
+        gradient.addColorStop(0.65, "#e9d5ff");
+        gradient.addColorStop(1, "rgba(103, 232, 249, 0.2)");
+
+        // Prisma's damaging form is a violet crystal aura with a bright,
+        // cool core; this intentionally does not look like EnemyBeam's red
+        // rectangular laser.
+        this.ctx.strokeStyle = "rgba(139, 92, 246, 0.34)";
+        this.ctx.lineWidth = width + Math.max(8, width * 0.55);
+        this.ctx.shadowColor = "rgba(167, 139, 250, 0.88)";
+        this.ctx.shadowBlur = 18;
+        this.ctx.beginPath();
+        this.ctx.moveTo(start.x, start.y);
+        this.ctx.lineTo(end.x, end.y);
+        this.ctx.stroke();
+
+        this.ctx.shadowBlur = 0;
+        this.ctx.strokeStyle = gradient;
+        this.ctx.lineWidth = width;
+        this.ctx.beginPath();
+        this.ctx.moveTo(start.x, start.y);
+        this.ctx.lineTo(end.x, end.y);
+        this.ctx.stroke();
+
+        this.ctx.strokeStyle = "rgba(240, 249, 255, 0.94)";
+        this.ctx.lineWidth = Math.max(2, width * 0.24);
+        this.ctx.beginPath();
+        this.ctx.moveTo(start.x, start.y);
+        this.ctx.lineTo(end.x, end.y);
         this.ctx.stroke();
         this.ctx.restore();
     }
@@ -385,11 +467,12 @@ export class Renderer extends GObject {
     private drawSprite(
         entity: Entity
     ): { x: number; y: number; width: number; height: number } | undefined {
-        if (typeof entity.sprite !== "string") {
+        const sprite = this.effectiveSprite(entity);
+        if (typeof sprite !== "string") {
             return undefined;
         }
 
-        const image = this.getSpriteImage(entity.sprite);
+        const image = this.getSpriteImage(sprite);
         if (!image || !image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
             return undefined;
         }
@@ -423,8 +506,14 @@ export class Renderer extends GObject {
         this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
     }
 
+    /** Current animation frame wins, with the entity's static visual as fallback. */
+    private effectiveSprite(entity: Entity): Sprite {
+        return entity.animation?.currentFrame ?? entity.sprite;
+    }
+
     private spriteBounds(entity: Entity): { x: number; y: number; width: number; height: number } {
-        if (typeof entity.sprite === "string") {
+        const sprite = this.effectiveSprite(entity);
+        if (typeof sprite === "string") {
             return {
                 x: entity.position.x,
                 y: entity.position.y,
@@ -436,8 +525,8 @@ export class Renderer extends GObject {
         return {
             x: entity.position.x,
             y: entity.position.y,
-            width: entity.sprite.x,
-            height: entity.sprite.y
+            width: sprite.x,
+            height: sprite.y
         };
     }
 
