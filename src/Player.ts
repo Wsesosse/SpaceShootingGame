@@ -18,6 +18,10 @@ export class Player extends Entity {
     static readonly beamWidthPerStep = 2;
     static readonly beamFireCooldownDuration = 0.2;
     static readonly cryoSinkCooldownDuration = 7;
+    static readonly maxHomingLevel = 3;
+    static readonly homingBaseRadius = 150;
+    static readonly homingRadiusPerLevel = 90;
+    static readonly homingTurnRate = 2.4;
 
     speed: number = 300;
     maxHealth = 100;
@@ -126,9 +130,18 @@ export class Player extends Entity {
         return this.homingLevel;
     }
 
-    /** First stack restores the original 7/s turn rate; later stacks sharpen it. */
+    /** Soft homing helps correct aim without turning bullets into missiles. */
     get homingTurnRate(): number {
-        return this.homingEnabled ? 4 + this.homingLevel * 3 : 0;
+        return this.homingEnabled ? Player.homingTurnRate : 0;
+    }
+
+    get homingRadius(): number {
+        if (!this.homingEnabled) {
+            return 0;
+        }
+
+        return Player.homingBaseRadius +
+            (this.homingLevel - 1) * Player.homingRadiusPerLevel;
     }
 
     increaseMaxHealth(amount: number): void {
@@ -158,7 +171,10 @@ export class Player extends Entity {
     }
 
     enableHomingBullets(): void {
-        this.homingLevel += 1;
+        this.homingLevel = Math.min(
+            Player.maxHomingLevel,
+            this.homingLevel + 1
+        );
     }
 
     increaseBulletPenetration(amount: number): void {
@@ -389,7 +405,8 @@ export class Player extends Entity {
                     damage: this.bulletDamage,
                     penetration: this.bulletPenetration,
                     homing: this.homingEnabled,
-                    homingTurnRate: this.homingTurnRate
+                    homingTurnRate: this.homingTurnRate,
+                    homingRadius: this.homingRadius
                 }
             );
 

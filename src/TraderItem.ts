@@ -65,7 +65,7 @@ export interface TraderItem {
 
 export const MAX_STANDARD_BUFF_STACKS = 10;
 export const MAX_PENETRATION_STACKS = 2;
-export const MAX_HOMING_STACKS = 1;
+export const MAX_HOMING_STACKS = 3;
 
 const STANDARD_COST_GROWTH = 1.45;
 
@@ -135,7 +135,7 @@ const ITEMS: Readonly<Record<TraderItemId, TraderItem>> = {
     homingBullets: {
         id: "homingBullets",
         name: "Homing Bullet",
-        description: "Sharper bullet homing",
+        description: "Wider soft-homing radius",
         cost: 1500,
         maxStacks: MAX_HOMING_STACKS,
         costGrowth: 1.5,

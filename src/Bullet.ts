@@ -12,6 +12,8 @@ export type BulletOptions = {
     homing?: boolean;
     /** Radians-per-second-like steering factor used only when homing is on. */
     homingTurnRate?: number;
+    /** Maximum center-to-center distance where homing can acquire a target. */
+    homingRadius?: number;
 };
 
 export class Bullet extends Entity {
@@ -21,6 +23,7 @@ export class Bullet extends Entity {
     private penetration: number;
     private readonly homing: boolean;
     private readonly homingTurnRate: number;
+    private readonly homingRadius: number;
     private readonly hitEntities = new Set<Enemy>();
 
     constructor(
@@ -35,6 +38,7 @@ export class Bullet extends Entity {
         this.penetration = options.penetration ?? 0;
         this.homing = options.homing ?? false;
         this.homingTurnRate = options.homingTurnRate ?? 7;
+        this.homingRadius = options.homingRadius ?? Infinity;
     }
 
     get directionVector(): Vector2 {
@@ -97,7 +101,8 @@ export class Bullet extends Entity {
 
     private findNearestEnemy(): Enemy | undefined {
         let closest: Enemy | undefined;
-        let closestDistance = Infinity;
+        const radiusSquared = this.homingRadius * this.homingRadius;
+        let closestDistance = radiusSquared;
 
         for (const entity of World.entities) {
             if (!(entity instanceof Enemy) || !entity.alive) {

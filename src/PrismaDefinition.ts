@@ -101,7 +101,7 @@ export const PRISMA_DEFINITION = {
         outwardSpeed:
             PLAYER_MOVEMENT_REFERENCE_SPEED *
             CRYSTALIZE_OUTWARD_SPEED_MULTIPLIER,
-        rotationRadiansPerSecond: 0.12
+        rotationRadiansPerSecond: 0.36
     }
 } as const;
 

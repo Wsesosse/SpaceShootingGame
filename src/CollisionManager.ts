@@ -227,10 +227,11 @@ export class CollisionManager extends GObject {
         if (
             a instanceof Enemy &&
             b instanceof Player &&
+            a.kind !== "boss" &&
             a.kind !== "blocking" &&
             !a.isCryoFrozen
         ) {
-            const baseDamage = a.kind === "boss" ? 40 : 30;
+            const baseDamage = 30;
             b.takeHit(Math.round(baseDamage * GameState.enemyDamageMultiplier));
         }
     }
