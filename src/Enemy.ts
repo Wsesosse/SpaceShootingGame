@@ -73,7 +73,7 @@ export class Enemy extends Entity {
         pathOffset = 0
     ) {
         super(position, size);
-        const baseHealth = kind === "boss" ? 300 : kind === "beam" ? 20 : 30;
+        const baseHealth = kind === "boss" ? 1000 : kind === "beam" ? 20 : 30;
         this.maxHealth = Math.round(baseHealth * GameState.enemyHealthMultiplier);
         this.health = this.maxHealth;
         this.speed = kind === "boss" ? 35 : kind === "beam" ? 65 : kind === "blocking" ? 105 : 80;

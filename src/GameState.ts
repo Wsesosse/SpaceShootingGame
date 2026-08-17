@@ -25,6 +25,11 @@ export class GameState {
     static lives = 3;
     static status: GameStatus = "menu";
     static readonly abilities = new Set<Ability>();
+    static runTime = 0;
+    static totalKills = 0;
+    static wavesCleared = 0;
+    static specialWavesSurvived = 0;
+    static bossesDefeated = 0;
 
     static reset(): void {
         this.mode = null;
@@ -38,6 +43,7 @@ export class GameState {
         this.lives = 3;
         this.status = "menu";
         this.abilities.clear();
+        this.resetRunSummary();
     }
 
     static startRun(mode: GameMode): void {
@@ -52,6 +58,7 @@ export class GameState {
         this.lives = 3;
         this.status = mode === "tutorial" ? "tutorialIntro" : "playing";
         this.abilities.clear();
+        this.resetRunSummary();
         this.beginWave();
     }
 
@@ -82,6 +89,21 @@ export class GameState {
 
     static get enemyDamageMultiplier(): number {
         return 1 + (this.level - 1) * 0.2;
+    }
+
+    static tickRunTime(deltaTime: number): void {
+        if (!this.isEndless || !this.isRunTimerActive) {
+            return;
+        }
+
+        this.runTime += Math.max(0, deltaTime);
+    }
+
+    static get isRunTimerActive(): boolean {
+        return this.status === "playing" ||
+            this.status === "betweenWaves" ||
+            this.status === "boss" ||
+            this.status === "levelComplete";
     }
 
     static beginWave(random: () => number = Math.random): void {
@@ -123,6 +145,8 @@ export class GameState {
         }
 
         this.status = "betweenWaves";
+        this.wavesCleared += 1;
+        this.specialWavesSurvived += 1;
         return true;
     }
 
@@ -136,9 +160,11 @@ export class GameState {
         }
 
         this.kills += 1;
+        this.totalKills += 1;
 
         if (this.kills >= this.target) {
             this.status = "betweenWaves";
+            this.wavesCleared += 1;
         }
     }
 
@@ -149,6 +175,9 @@ export class GameState {
     }
 
     static bossDefeated(): void {
+        if (this.isEndless) {
+            this.bossesDefeated += 1;
+        }
         this.status = this.isEndless ? "levelComplete" : "won";
     }
 
@@ -160,5 +189,13 @@ export class GameState {
         this.specialWaveTimeRemaining = 0;
         this.status = "playing";
         this.beginWave();
+    }
+
+    private static resetRunSummary(): void {
+        this.runTime = 0;
+        this.totalKills = 0;
+        this.wavesCleared = 0;
+        this.specialWavesSurvived = 0;
+        this.bossesDefeated = 0;
     }
 }

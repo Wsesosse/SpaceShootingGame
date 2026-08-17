@@ -9,6 +9,7 @@ import { Input } from "./Input.js";
 import { SessionManager } from "./SessionManager.js";
 import { Game } from "./Game.js";
 import { PrismaBoss } from "./PrismaBoss.js";
+import { GameFrame } from "./GameFrame.js";
 
 export class UI extends GObject {
     private readonly ctx: CanvasRenderingContext2D;
@@ -33,6 +34,27 @@ export class UI extends GObject {
                 ? "pointer"
                 : "default";
 
+        this.withLayoutTransform(() => this.drawCurrentState());
+    }
+
+    /**
+     * UI authoring stays in the reference 800 × 600 layout. GameFrame first
+     * maps logical game coordinates to the canvas, then this scale maps that
+     * reference layout into the current logical GameFrame.
+     */
+    private withLayoutTransform(draw: () => void): void {
+        this.ctx.save();
+        GameFrame.applyRenderTransform(this.ctx);
+        this.ctx.scale(GameFrame.scaleX, GameFrame.scaleY);
+
+        try {
+            draw();
+        } finally {
+            this.ctx.restore();
+        }
+    }
+
+    private drawCurrentState(): void {
         if (GameState.status === "menu") {
             this.drawMenu();
             return;
@@ -62,7 +84,7 @@ export class UI extends GObject {
 
         const progress = this.progressText();
         this.ctx.textAlign = "right";
-        this.ctx.fillText(progress, 776, 34);
+        this.ctx.fillText(progress, this.layoutWidth - 24, 34);
         this.ctx.textAlign = "start";
 
         if (player) this.drawAbilities(player);
@@ -82,7 +104,11 @@ export class UI extends GObject {
             this.message("LEVEL COMPLETE — entering the next sector");
         }
         if (GameState.status === "gameOver") {
-            this.message("GAME OVER — Enter: retry  •  Esc: menu");
+            if (GameState.isEndless) {
+                this.drawEndlessRunSummary();
+            } else {
+                this.message("GAME OVER — Enter: retry  •  Esc: menu");
+            }
         }
         if (GameState.status === "won") {
             this.message("YOU WIN — Enter: retry  •  Esc: menu");
@@ -107,29 +133,51 @@ export class UI extends GObject {
         this.Update();
         // The world and HUD stay visible behind this so the player can
         // immediately re-orient themselves when they resume.
-        this.drawPauseOverlay();
+        this.withLayoutTransform(() => this.drawPauseOverlay());
+    }
+
+    private get layoutWidth(): number {
+        return GameFrame.referenceWidth;
+    }
+
+    private get layoutHeight(): number {
+        return GameFrame.referenceHeight;
+    }
+
+    private get layoutCenterX(): number {
+        return this.layoutWidth / 2;
+    }
+
+    private get layoutCenterY(): number {
+        return this.layoutHeight / 2;
     }
 
     private drawPanel(): void {
         this.ctx.fillStyle = "rgba(5, 8, 20, 0.78)";
-        this.ctx.fillRect(12, 12, 776, 54);
+        this.ctx.fillRect(12, 12, this.layoutWidth - 24, 54);
     }
 
     private drawMenu(): void {
+        const width = 540;
+        const height = 390;
+        const x = this.layoutCenterX - width / 2;
+        const y = this.layoutCenterY - height / 2;
+        const choiceX = this.layoutCenterX - 230;
+
         this.ctx.save();
         this.ctx.fillStyle = "rgba(5, 8, 20, 0.78)";
-        this.ctx.fillRect(130, 105, 540, 390);
+        this.ctx.fillRect(x, y, width, height);
         this.ctx.strokeStyle = "#4dabf7";
         this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(130, 105, 540, 390);
+        this.ctx.strokeRect(x, y, width, height);
 
         this.ctx.fillStyle = "#e7f5ff";
         this.ctx.textAlign = "center";
         this.ctx.font = "bold 42px sans-serif";
-        this.ctx.fillText("SPACE SHOOTER", 400, 175);
+        this.ctx.fillText("SPACE SHOOTER", this.layoutCenterX, 175);
         this.ctx.fillStyle = "#74c0fc";
         this.ctx.font = "18px sans-serif";
-        this.ctx.fillText("Click a flight plan", 400, 210);
+        this.ctx.fillText("Click a flight plan", this.layoutCenterX, 210);
 
         this.drawMenuChoice(
             165,
@@ -142,61 +190,69 @@ export class UI extends GObject {
             "Survive escalating waves and trade score for upgrades"
         );
 
-        const click = Input.consumeClick();
-        if (click && this.inRect(click, 170, 230, 460, 95)) {
+        const click = this.consumeLayoutClick();
+        if (click && this.inRect(click, choiceX, 230, 460, 95)) {
             SessionManager.current?.startMode("tutorial");
-        } else if (click && this.inRect(click, 170, 370, 460, 95)) {
+        } else if (click && this.inRect(click, choiceX, 370, 460, 95)) {
             SessionManager.current?.startMode("endless");
         }
         this.ctx.restore();
     }
 
     private drawMenuChoice(y: number, title: string, subtitle: string): void {
+        const x = this.layoutCenterX - 230;
         this.ctx.fillStyle = "rgba(18, 48, 94, 0.85)";
-        this.ctx.fillRect(170, y + 65, 460, 95);
+        this.ctx.fillRect(x, y + 65, 460, 95);
         this.ctx.strokeStyle = "#339af0";
-        this.ctx.strokeRect(170, y + 65, 460, 95);
+        this.ctx.strokeRect(x, y + 65, 460, 95);
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.font = "bold 21px sans-serif";
-        this.ctx.fillText(title, 400, y + 102);
+        this.ctx.fillText(title, this.layoutCenterX, y + 102);
         this.ctx.fillStyle = "#adb5bd";
         this.ctx.font = "14px sans-serif";
-        this.ctx.fillText(subtitle, 400, y + 132);
+        this.ctx.fillText(subtitle, this.layoutCenterX, y + 132);
     }
 
     private drawTutorialIntro(): void {
+        const width = 590;
+        const height = 424;
+        const x = this.layoutCenterX - width / 2;
+        const y = this.layoutCenterY - height / 2;
+        const startButtonWidth = 350;
+        const startButtonX = this.layoutCenterX - startButtonWidth / 2;
+
         this.ctx.save();
         this.ctx.fillStyle = "rgba(5, 8, 20, 0.94)";
-        this.ctx.fillRect(105, 88, 590, 424);
+        this.ctx.fillRect(x, y, width, height);
         this.ctx.strokeStyle = "#4dabf7";
         this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(105, 88, 590, 424);
+        this.ctx.strokeRect(x, y, width, height);
         this.ctx.textAlign = "center";
         this.ctx.fillStyle = "#e7f5ff";
         this.ctx.font = "bold 32px sans-serif";
-        this.ctx.fillText("TUTORIAL — FLIGHT BASICS", 400, 142);
+        this.ctx.fillText("TUTORIAL — FLIGHT BASICS", this.layoutCenterX, 142);
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.font = "18px sans-serif";
-        this.ctx.fillText("WASD / Arrow keys — move", 400, 205);
-        this.ctx.fillText("Space — fire", 400, 242);
-        this.ctx.fillText("I — Cryo Sink: drains normal enemy bullets", 400, 279);
-        this.ctx.fillText("Nearby enemies chill, slow, then freeze", 400, 303);
+        this.ctx.fillText("WASD / Arrow keys — move", this.layoutCenterX, 205);
+        this.ctx.fillText("Space — fire", this.layoutCenterX, 242);
+        this.ctx.fillText("I — Cryo Sink: drains normal enemy bullets", this.layoutCenterX, 279);
+        this.ctx.fillText("Nearby enemies chill, slow, then freeze", this.layoutCenterX, 303);
         this.ctx.fillStyle = "#adb5bd";
         this.ctx.font = "15px sans-serif";
-        this.ctx.fillText("Esc / P — pause the run", 400, 326);
-        this.ctx.fillText("Clear wave 1 to unlock K Repair", 400, 352);
-        this.ctx.fillText("Clear wave 2 to unlock L Shield", 400, 379);
-        this.ctx.fillText("Clear wave 3 to unlock J Charge Beam", 400, 406);
+        this.ctx.fillText("Esc / P — pause the run", this.layoutCenterX, 326);
+        this.ctx.fillText("Clear wave 1 to unlock K Repair", this.layoutCenterX, 352);
+        this.ctx.fillText("Clear wave 2 to unlock L Shield", this.layoutCenterX, 379);
+        this.ctx.fillText("Clear wave 3 to unlock J Charge Beam", this.layoutCenterX, 406);
 
         this.ctx.fillStyle = "rgba(18, 72, 132, 0.95)";
-        this.ctx.fillRect(225, 432, 350, 56);
+        this.ctx.fillRect(startButtonX, 432, startButtonWidth, 56);
         this.ctx.strokeStyle = "#74c0fc";
-        this.ctx.strokeRect(225, 432, 350, 56);
+        this.ctx.strokeRect(startButtonX, 432, startButtonWidth, 56);
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.font = "bold 19px sans-serif";
-        this.ctx.fillText("CLICK TO START WAVE 1", 400, 467);
-        const click = Input.consumeClick();
-        if (click && this.inRect(click, 225, 432, 350, 56)) {
+        this.ctx.fillText("CLICK TO START WAVE 1", this.layoutCenterX, 467);
+        const click = this.consumeLayoutClick();
+        if (click && this.inRect(click, startButtonX, 432, startButtonWidth, 56)) {
             GameState.status = "playing";
         }
         this.ctx.restore();
@@ -214,19 +270,19 @@ export class UI extends GObject {
         this.ctx.fillStyle = "#adb5bd";
         this.ctx.font = "11px sans-serif";
         this.ctx.textAlign = "right";
-        this.ctx.fillText("ESC / P — PAUSE", 776, 56);
+        this.ctx.fillText("ESC / P — PAUSE", this.layoutWidth - 24, 56);
         this.ctx.restore();
     }
 
     private drawPauseOverlay(): void {
         const overlayWidth = 420;
         const overlayHeight = 174;
-        const overlayX = (this.canvas.width - overlayWidth) / 2;
-        const overlayY = (this.canvas.height - overlayHeight) / 2;
+        const overlayX = this.layoutCenterX - overlayWidth / 2;
+        const overlayY = this.layoutCenterY - overlayHeight / 2;
 
         this.ctx.save();
         this.ctx.fillStyle = "rgba(3, 6, 16, 0.72)";
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(0, 0, this.layoutWidth, this.layoutHeight);
 
         this.ctx.fillStyle = "rgba(8, 16, 39, 0.96)";
         this.ctx.fillRect(overlayX, overlayY, overlayWidth, overlayHeight);
@@ -237,7 +293,7 @@ export class UI extends GObject {
         this.ctx.textAlign = "center";
         this.ctx.fillStyle = "#e7f5ff";
         this.ctx.font = "bold 38px sans-serif";
-        this.ctx.fillText("PAUSED", this.canvas.width / 2, overlayY + 64);
+        this.ctx.fillText("PAUSED", this.layoutCenterX, overlayY + 64);
         this.ctx.strokeStyle = "rgba(116, 192, 252, 0.45)";
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
@@ -246,10 +302,10 @@ export class UI extends GObject {
         this.ctx.stroke();
         this.ctx.fillStyle = "#adb5bd";
         this.ctx.font = "16px sans-serif";
-        this.ctx.fillText("The game is frozen", this.canvas.width / 2, overlayY + 119);
+        this.ctx.fillText("The game is frozen", this.layoutCenterX, overlayY + 119);
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.font = "bold 17px sans-serif";
-        this.ctx.fillText("Esc / P — resume", this.canvas.width / 2, overlayY + 150);
+        this.ctx.fillText("Esc / P — resume", this.layoutCenterX, overlayY + 150);
         this.ctx.restore();
     }
 
@@ -281,6 +337,19 @@ export class UI extends GObject {
             point.y >= y && point.y <= y + height;
     }
 
+    /** Input arrives in logical GameFrame space; UI hitboxes use reference space. */
+    private consumeLayoutClick(): { x: number; y: number } | undefined {
+        const click = Input.consumeClick();
+        if (!click) {
+            return undefined;
+        }
+
+        return {
+            x: click.x / GameFrame.scaleX,
+            y: click.y / GameFrame.scaleY
+        };
+    }
+
     private drawTrader(): void {
         const trader = this.findTrader();
         if (!trader) return;
@@ -292,32 +361,40 @@ export class UI extends GObject {
         const cardHeight = columns === 3 ? 225 : 145;
         const cardGap = columns === 3 ? 20 : 10;
         const totalCardWidth = columns * cardWidth + (columns - 1) * cardGap;
-        const startX = (800 - totalCardWidth) / 2;
+        const startX = this.layoutCenterX - totalCardWidth / 2;
         const startY = 126;
         const actionY = rows === 1 ? 378 : 448;
+        const actionGap = 12;
+        const restockWidth = 220;
+        const nextSlotWidth = 270;
+        const continueWidth = 190;
+        const actionTotalWidth = restockWidth + nextSlotWidth + continueWidth + actionGap * 2;
+        const restockX = this.layoutCenterX - actionTotalWidth / 2;
+        const nextSlotX = restockX + restockWidth + actionGap;
+        const continueX = nextSlotX + nextSlotWidth + actionGap;
 
         this.ctx.save();
         this.ctx.fillStyle = "rgba(5, 8, 20, 0.93)";
-        this.ctx.fillRect(26, 30, 748, 540);
+        this.ctx.fillRect(26, 30, this.layoutWidth - 52, this.layoutHeight - 60);
         this.ctx.strokeStyle = "#ffd43b";
         this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(26, 30, 748, 540);
+        this.ctx.strokeRect(26, 30, this.layoutWidth - 52, this.layoutHeight - 60);
         this.ctx.fillStyle = "#ffe066";
         this.ctx.textAlign = "center";
         this.ctx.font = "bold 28px sans-serif";
-        this.ctx.fillText("TRADER DOCK", 400, 70);
+        this.ctx.fillText("TRADER DOCK", this.layoutCenterX, 70);
         this.ctx.font = "15px sans-serif";
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.fillText(
             `SCORE ${ScoreSystem.score}  •  ${trader.statusMessage}`,
-            400,
+            this.layoutCenterX,
             96
         );
         this.ctx.fillStyle = "#74c0fc";
         this.ctx.font = "13px sans-serif";
         this.ctx.fillText(
             `THIS TRADE: ${trader.currentSlotCount} SLOTS  •  PERMANENT: ${trader.permanentOfferSlots}  •  NEXT-TRADE BONUS: ${trader.queuedNextTradeSlotCount}`,
-            400,
+            this.layoutCenterX,
             116
         );
 
@@ -374,29 +451,29 @@ export class UI extends GObject {
         if (trader.currentOffers.length === 0) {
             this.ctx.fillStyle = "#adb5bd";
             this.ctx.font = "bold 18px sans-serif";
-            this.ctx.fillText("ALL UPGRADES FULLY STACKED", 400, 292);
+            this.ctx.fillText("ALL UPGRADES FULLY STACKED", this.layoutCenterX, 292);
         }
 
         this.drawTraderButton(
-            48,
+            restockX,
             actionY,
-            220,
+            restockWidth,
             48,
             `RESTOCK LIFE — ${trader.restockCost}`,
             "#795315"
         );
         this.drawTraderButton(
-            280,
+            nextSlotX,
             actionY,
-            270,
+            nextSlotWidth,
             48,
             `+ NEXT TRADE SLOT — ${trader.nextTradeSlotPurchaseCost}`,
             "#1b5e76"
         );
         this.drawTraderButton(
-            562,
+            continueX,
             actionY,
-            190,
+            continueWidth,
             48,
             "CONTINUE",
             "#285f3f"
@@ -405,11 +482,11 @@ export class UI extends GObject {
         this.ctx.font = "12px sans-serif";
         this.ctx.fillText(
             "Each + slot costs 25 score and applies only to the next Trader visit.",
-            400,
+            this.layoutCenterX,
             actionY + 72
         );
 
-        const click = Input.consumeClick();
+        const click = this.consumeLayoutClick();
         if (click) {
             for (let index = 0; index < trader.currentOffers.length; index++) {
                 const column = index % columns;
@@ -422,11 +499,11 @@ export class UI extends GObject {
                 }
             }
 
-            if (this.inRect(click, 48, actionY, 220, 48)) {
+            if (this.inRect(click, restockX, actionY, restockWidth, 48)) {
                 trader.purchaseRestockLife();
-            } else if (this.inRect(click, 280, actionY, 270, 48)) {
+            } else if (this.inRect(click, nextSlotX, actionY, nextSlotWidth, 48)) {
                 trader.purchaseNextTradeSlot();
-            } else if (this.inRect(click, 562, actionY, 190, 48)) {
+            } else if (this.inRect(click, continueX, actionY, continueWidth, 48)) {
                 trader.leave();
             }
         }
@@ -483,17 +560,18 @@ export class UI extends GObject {
     }
 
     private drawPlayerStatus(player: Player): void {
+        const panelY = this.layoutHeight - 90;
         this.ctx.fillStyle = "rgba(5, 8, 20, 0.82)";
-        this.ctx.fillRect(12, 510, 270, 78);
+        this.ctx.fillRect(12, panelY, 270, 78);
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.font = "bold 14px sans-serif";
-        this.ctx.fillText(`HP  ${player.currentHealth} / ${player.maxHealth}`, 24, 535);
-        this.bar(24, 542, 160, 10, player.currentHealth / player.maxHealth, "#ff6b6b");
+        this.ctx.fillText(`HP  ${player.currentHealth} / ${player.maxHealth}`, 24, panelY + 25);
+        this.bar(24, panelY + 32, 160, 10, player.currentHealth / player.maxHealth, "#ff6b6b");
         this.ctx.fillStyle = "#f8f9fa";
         this.ctx.fillText(
             `LIVES  ${GameState.lives} / ${GameState.maxLives}`,
             196,
-            550
+            panelY + 40
         );
         this.ctx.fillStyle = "#74c0fc";
         this.ctx.font = "bold 12px sans-serif";
@@ -503,19 +581,19 @@ export class UI extends GObject {
         this.ctx.fillText(
             `SHOT D${player.currentBulletDamage}  •  PEN ${player.currentBulletPenetration}/${MAX_PENETRATION_STACKS}  •  ${homing}`,
             24,
-            578
+            panelY + 68
         );
         if (player.invulnerable) {
             this.ctx.fillStyle = "#74c0fc";
-            this.ctx.fillText("IFRAME", 218, 578);
+            this.ctx.fillText("IFRAME", 218, panelY + 68);
         }
     }
 
     /** Small top-centre readout: the boss HUD must not obscure the play field. */
     private drawPrismaStatus(prisma: PrismaBoss): void {
-        const x = 290;
-        const y = 8;
         const width = 220;
+        const x = this.layoutCenterX - width / 2;
+        const y = 8;
 
         this.ctx.save();
         this.ctx.fillStyle = "#f3f0ff";
@@ -532,20 +610,81 @@ export class UI extends GObject {
     }
 
     private drawSpecialWaveNotice(): void {
+        const width = 310;
+        const x = this.layoutCenterX - width / 2;
+
         this.ctx.save();
         this.ctx.fillStyle = "rgba(116, 192, 252, 0.18)";
-        this.ctx.fillRect(245, 78, 310, 34);
+        this.ctx.fillRect(x, 78, width, 34);
         this.ctx.strokeStyle = "#74c0fc";
-        this.ctx.strokeRect(245, 78, 310, 34);
+        this.ctx.strokeRect(x, 78, width, 34);
         this.ctx.fillStyle = "#e7f5ff";
         this.ctx.font = "bold 15px sans-serif";
         this.ctx.textAlign = "center";
         this.ctx.fillText(
             `SPECIAL WAVE — SURVIVE ${Math.ceil(GameState.specialWaveTimeRemaining)}s`,
-            400,
+            this.layoutCenterX,
             100
         );
         this.ctx.restore();
+    }
+
+    private drawEndlessRunSummary(): void {
+        const width = 460;
+        const height = 330;
+        const x = this.layoutCenterX - width / 2;
+        const y = this.layoutCenterY - height / 2;
+        const rows = [
+            ["TIME SURVIVED", this.formatTime(GameState.runTime)],
+            ["FINAL SCORE", `${ScoreSystem.score}`],
+            ["REACHED", `LEVEL ${GameState.level}  •  WAVE ${GameState.wave}`],
+            ["WAVES CLEAR", `${GameState.wavesCleared}`],
+            ["ENEMIES DEFEATED", `${GameState.totalKills}`],
+            ["BOSSES DEFEATED", `${GameState.bossesDefeated}`],
+            ["SPECIAL WAVES", `${GameState.specialWavesSurvived}`]
+        ];
+
+        this.ctx.save();
+        this.ctx.fillStyle = "rgba(3, 6, 16, 0.88)";
+        this.ctx.fillRect(0, 0, this.layoutWidth, this.layoutHeight);
+
+        this.ctx.fillStyle = "rgba(5, 8, 20, 0.96)";
+        this.ctx.fillRect(x, y, width, height);
+        this.ctx.strokeStyle = "#4dabf7";
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(x, y, width, height);
+
+        this.ctx.textAlign = "center";
+        this.ctx.fillStyle = "#e7f5ff";
+        this.ctx.font = "bold 30px sans-serif";
+        this.ctx.fillText("ENDLESS RUN SUMMARY", this.layoutCenterX, y + 48);
+
+        this.ctx.font = "14px sans-serif";
+        this.ctx.fillStyle = "#74c0fc";
+        this.ctx.fillText("Enter: retry  •  Esc: menu", this.layoutCenterX, y + 76);
+
+        this.ctx.textAlign = "start";
+        this.ctx.font = "bold 16px sans-serif";
+        for (let index = 0; index < rows.length; index++) {
+            const rowY = y + 112 + index * 28;
+            const [label, value] = rows[index];
+            this.ctx.fillStyle = "#adb5bd";
+            this.ctx.fillText(label, x + 42, rowY);
+            this.ctx.fillStyle = "#ffe066";
+            this.ctx.textAlign = "right";
+            this.ctx.fillText(value, x + width - 42, rowY);
+            this.ctx.textAlign = "start";
+        }
+
+        this.ctx.restore();
+    }
+
+    private formatTime(seconds: number): string {
+        const totalSeconds = Math.max(0, Math.floor(seconds));
+        const minutes = Math.floor(totalSeconds / 60);
+        const remainingSeconds = totalSeconds % 60;
+
+        return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
     }
 
     private drawAbilities(player: Player): void {
@@ -592,17 +731,24 @@ export class UI extends GObject {
             }
         ];
 
+        const cardWidth = 114;
+        const cardGap = 8;
+        const rightInset = 26;
+        const cardsWidth = cards.length * cardWidth + (cards.length - 1) * cardGap;
+        const startX = this.layoutWidth - rightInset - cardsWidth;
+        const cardY = this.layoutHeight - 70;
+
         for (let i = 0; i < cards.length; i++) {
             const card = cards[i];
-            const x = 294 + i * 122;
+            const x = startX + i * (cardWidth + cardGap);
             this.ctx.fillStyle = card.unlocked ? "rgba(12, 28, 58, 0.9)" : "rgba(30, 34, 43, 0.9)";
-            this.ctx.fillRect(x, 530, 114, 58);
+            this.ctx.fillRect(x, cardY, cardWidth, 58);
             this.ctx.fillStyle = card.unlocked ? "#e7f5ff" : "#868e96";
             this.ctx.font = "bold 12px sans-serif";
-            this.ctx.fillText(`[${card.key}] ${card.label}`, x + 10, 552);
-            this.bar(x + 10, 560, 94, 7, card.unlocked ? card.amount : 0, card.unlocked ? "#4dabf7" : "#495057");
+            this.ctx.fillText(`[${card.key}] ${card.label}`, x + 10, cardY + 22);
+            this.bar(x + 10, cardY + 30, 94, 7, card.unlocked ? card.amount : 0, card.unlocked ? "#4dabf7" : "#495057");
             this.ctx.font = "11px sans-serif";
-            this.ctx.fillText(card.unlocked ? card.state : "LOCKED", x + 10, 579);
+            this.ctx.fillText(card.unlocked ? card.state : "LOCKED", x + 10, cardY + 49);
         }
     }
 
@@ -617,7 +763,7 @@ export class UI extends GObject {
         this.ctx.fillStyle = "#ffe066";
         this.ctx.font = "bold 26px sans-serif";
         this.ctx.textAlign = "center";
-        this.ctx.fillText(text, 400, 300);
+        this.ctx.fillText(text, this.layoutCenterX, this.layoutCenterY);
         this.ctx.textAlign = "start";
     }
 }

@@ -8,6 +8,9 @@ import { GameState } from "./GameState.js";
 import { ChargeBeam } from "./ChargeBeam.js";
 import { MAX_PENETRATION_STACKS } from "./TraderItem.js";
 import { CryoSink } from "./CryoSink.js";
+import { PrismaBeam } from "./PrismaBeam.js";
+import { PrismaFragment } from "./PrismaFragment.js";
+import { CrystalizePrism } from "./CrystalizePrism.js";
 
 export class Player extends Entity {
     static readonly maxBeamChargeTime = 5;
@@ -403,11 +406,26 @@ export class Player extends Entity {
     /** Clears the current battlefield before a surviving player respawns. */
     private clearWorldAfterLifeLoss(): void {
         for (const entity of World.entities) {
-            if (entity !== this) {
+            if (entity !== this && !this.shouldPreserveOnLifeLoss(entity)) {
                 entity.kill();
             }
         }
         World.clean();
         this.activeCryoSink = undefined;
+    }
+
+    private shouldPreserveOnLifeLoss(entity: Entity): boolean {
+        if (GameState.status !== "boss") {
+            return false;
+        }
+
+        return this.isBossEntity(entity) ||
+            entity instanceof PrismaFragment ||
+            entity instanceof CrystalizePrism ||
+            entity instanceof PrismaBeam;
+    }
+
+    private isBossEntity(entity: Entity): boolean {
+        return "kind" in entity && entity.kind === "boss";
     }
 }

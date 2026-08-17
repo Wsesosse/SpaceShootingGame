@@ -5,8 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Space Shooter</title>
     <style>
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #080b16; }
-      canvas { background: #10182d; border: 2px solid #4ad; }
+      html, body { margin: 0; width: 100%; min-height: 100%; background: #080b16; }
+      body { min-height: 100dvh; display: grid; place-items: center; overflow: hidden; }
+      canvas {
+        display: block;
+        background: #10182d;
+        /* Outline does not change the CSS box that Input maps to GameFrame. */
+        outline: 2px solid #4ad;
+        touch-action: none;
+      }
     </style>
   </head>
   <body>

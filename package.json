@@ -1,6 +1,7 @@
 {
   "scripts": {
     "build": "node scripts/generate-sprite-manifest.mjs && tsc",
+    "build:netlify": "npm run build && node scripts/prepare-netlify.mjs",
     "smoke:cryo": "npm run build && node --experimental-default-type=module test/cryo-sink.smoke.mjs",
     "smoke:sprite": "npm run build && node --experimental-default-type=module test/sprite-api.smoke.mjs",
     "smoke:scheduler": "npm run build && node --experimental-default-type=module test/action-scheduler.smoke.mjs",

@@ -11,8 +11,17 @@ import { CryoSink } from "./CryoSink.js";
 import { Entity } from "./Entity.js";
 import type { Sprite } from "./Entity.js";
 import { PrismaBeam } from "./PrismaBeam.js";
+import { GameFrame } from "./GameFrame.js";
+import { PrismaFragment } from "./PrismaFragment.js";
 
 export class Renderer extends GObject {
+    /**
+     * Phase three has thirteen live Prisma beams. Canvas shadow blur is
+     * especially costly for that many long segments on a high-DPI backing
+     * store, so retain the drawn aura but omit only the blurred pass once the
+     * scene is a dense lattice. Phase two normally has seven chain beams.
+     */
+    private static readonly densePrismaBeamThreshold = 8;
     private ctx: CanvasRenderingContext2D;
     private readonly spriteCache = new Map<string, HTMLImageElement | null>();
 
@@ -35,6 +44,7 @@ export class Renderer extends GObject {
 
     override Update(): void {
         this.clear();
+        GameFrame.applyRenderTransform(this.ctx);
         this.renderBackground();
         this.renderWorld();
     }
@@ -45,34 +55,45 @@ export class Renderer extends GObject {
     }
 
     private clear(): void {
+        // The canvas backing store can be larger than the game coordinate
+        // space (for example on a high-DPI display). Clearing has to happen
+        // in raw backing-store pixels, before the GameFrame transform is
+        // applied for logical drawing.
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
     private renderBackground(): void {
-        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, GameFrame.height);
         gradient.addColorStop(0, "#101b3d");
         gradient.addColorStop(1, "#050814");
         this.ctx.fillStyle = gradient;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(0, 0, GameFrame.width, GameFrame.height);
 
         this.ctx.fillStyle = "rgba(201, 231, 255, 0.55)";
         for (let i = 0; i < 55; i++) {
-            const x = (i * 151) % this.canvas.width;
-            const y = (i * 83) % this.canvas.height;
+            const x = (i * 151) % GameFrame.width;
+            const y = (i * 83) % GameFrame.height;
             this.ctx.fillRect(x, y, i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
         }
     }
 
     private renderWorld(): void {
+        const suppressDensePrismaBeamGlow = this.hasDensePrismaBeamScene();
         for (const entity of World.entities) {
 
             if (entity instanceof PrismaBeam) {
-                this.drawPrismaBeam(entity);
+                this.drawPrismaBeam(entity, suppressDensePrismaBeamGlow);
                 continue;
             }
 
             if (entity instanceof Enemy) {
                 this.drawEnemy(entity);
+                continue;
+            }
+
+            if (entity instanceof PrismaFragment) {
+                this.drawPrismaFragment(entity);
                 continue;
             }
 
@@ -127,6 +148,23 @@ export class Renderer extends GObject {
         }
     }
 
+    /** Count only until the visual quality threshold; do not allocate an array. */
+    private hasDensePrismaBeamScene(): boolean {
+        let beamCount = 0;
+        for (const entity of World.entities) {
+            if (!(entity instanceof PrismaBeam) || !entity.alive) {
+                continue;
+            }
+
+            beamCount += 1;
+            if (beamCount >= Renderer.densePrismaBeamThreshold) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private drawChargeBeam(beam: ChargeBeam): void {
         this.ctx.save();
         this.ctx.strokeStyle = "rgba(116, 192, 252, 0.3)";
@@ -141,7 +179,10 @@ export class Renderer extends GObject {
         this.ctx.restore();
     }
 
-    private drawPrismaBeam(beam: PrismaBeam): void {
+    private drawPrismaBeam(
+        beam: PrismaBeam,
+        suppressDenseGlow: boolean
+    ): void {
         const { start, end } = beam.segment;
         const { width } = beam.currentValues;
         if (width <= 0) {
@@ -157,8 +198,12 @@ export class Renderer extends GObject {
             this.ctx.strokeStyle = "rgba(255, 77, 79, 0.96)";
             this.ctx.lineWidth = Math.max(2, Math.min(5, width * 0.22));
             this.ctx.setLineDash([8, 5]);
-            this.ctx.shadowColor = "rgba(255, 77, 79, 0.75)";
-            this.ctx.shadowBlur = 8;
+            if (suppressDenseGlow) {
+                this.ctx.shadowBlur = 0;
+            } else {
+                this.ctx.shadowColor = "rgba(255, 77, 79, 0.75)";
+                this.ctx.shadowBlur = GameFrame.renderLength(8);
+            }
             this.ctx.beginPath();
             this.ctx.moveTo(start.x, start.y);
             this.ctx.lineTo(end.x, end.y);
@@ -186,8 +231,16 @@ export class Renderer extends GObject {
         // rectangular laser.
         this.ctx.strokeStyle = "rgba(139, 92, 246, 0.34)";
         this.ctx.lineWidth = width + Math.max(8, width * 0.55);
-        this.ctx.shadowColor = "rgba(167, 139, 250, 0.88)";
-        this.ctx.shadowBlur = 18;
+        if (suppressDenseGlow) {
+            // The translucent wide stroke above remains the same visible
+            // violet aura. Skipping only the filter-like shadow work keeps
+            // the full lattice readable without rasterizing thirteen blurred
+            // screen-length lines every frame.
+            this.ctx.shadowBlur = 0;
+        } else {
+            this.ctx.shadowColor = "rgba(167, 139, 250, 0.88)";
+            this.ctx.shadowBlur = GameFrame.renderLength(18);
+        }
         this.ctx.beginPath();
         this.ctx.moveTo(start.x, start.y);
         this.ctx.lineTo(end.x, end.y);
@@ -327,7 +380,7 @@ export class Renderer extends GObject {
         }
 
         this.ctx.shadowColor = "#67e8f9";
-        this.ctx.shadowBlur = 20;
+        this.ctx.shadowBlur = GameFrame.renderLength(20);
         this.ctx.fillStyle = "#e0f2fe";
         this.ctx.beginPath();
         this.ctx.arc(center.x, center.y, 8 + life * 2, 0, Math.PI * 2);
@@ -380,8 +433,38 @@ export class Renderer extends GObject {
             "#51cf66"
         );
 
-        if (enemy.cryoDrainLevel > 0) {
-            const level = enemy.cryoDrainLevel;
+        this.drawCryoOverlay(bounds, enemy.cryoDrainLevel, enemy.isCryoFrozen);
+
+        if (enemy.kind === "blocking") {
+            for (let i = 0; i < 2; i++) {
+                this.ctx.fillStyle = i < enemy.remainingShieldHits ? "#ffd43b" : "#495057";
+                this.ctx.fillRect(bounds.x + i * (bounds.width / 4), bounds.y - 15, 7, 4);
+            }
+        }
+    }
+
+    private drawPrismaFragment(fragment: PrismaFragment): void {
+        const renderedBounds = this.drawSprite(fragment);
+        const bounds = renderedBounds ?? this.spriteBounds(fragment);
+        if (!renderedBounds) {
+            this.ctx.fillStyle = "#e7f5ff";
+            this.drawSpriteFallback(fragment);
+        }
+
+        this.drawCryoOverlay(
+            bounds,
+            fragment.cryoDrainLevel,
+            fragment.isCryoFrozen
+        );
+    }
+
+    private drawCryoOverlay(
+        bounds: { x: number; y: number; width: number; height: number },
+        drainLevel: number,
+        frozen: boolean
+    ): void {
+        if (drainLevel > 0) {
+            const level = drainLevel;
             this.ctx.fillStyle = `rgba(165, 243, 252, ${0.12 + level * 0.34})`;
             this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
             this.ctx.strokeStyle = `rgba(224, 242, 254, ${0.35 + level * 0.55})`;
@@ -392,7 +475,6 @@ export class Renderer extends GObject {
                 bounds.width - 3,
                 bounds.height - 3
             );
-            // Frost fragments become denser as energy is drained.
             this.ctx.fillStyle = `rgba(224, 242, 254, ${0.25 + level * 0.55})`;
             this.ctx.fillRect(bounds.x + 3, bounds.y + 3, 4 + level * 4, 2);
             this.ctx.fillRect(
@@ -403,12 +485,17 @@ export class Renderer extends GObject {
             );
         }
 
-        if (enemy.isCryoFrozen) {
+        if (frozen) {
             this.ctx.fillStyle = "rgba(125, 211, 252, 0.42)";
             this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
             this.ctx.strokeStyle = "#e0f2fe";
             this.ctx.lineWidth = 2.5;
-            this.ctx.strokeRect(bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2);
+            this.ctx.strokeRect(
+                bounds.x + 1,
+                bounds.y + 1,
+                bounds.width - 2,
+                bounds.height - 2
+            );
             this.ctx.fillStyle = "rgba(240, 249, 255, 0.82)";
             this.ctx.fillRect(
                 bounds.x + bounds.width * 0.22,
@@ -416,13 +503,6 @@ export class Renderer extends GObject {
                 bounds.width * 0.56,
                 2
             );
-        }
-
-        if (enemy.kind === "blocking") {
-            for (let i = 0; i < 2; i++) {
-                this.ctx.fillStyle = i < enemy.remainingShieldHits ? "#ffd43b" : "#495057";
-                this.ctx.fillRect(bounds.x + i * (bounds.width / 4), bounds.y - 15, 7, 4);
-            }
         }
     }
 

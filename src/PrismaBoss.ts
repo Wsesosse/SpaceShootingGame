@@ -54,6 +54,7 @@ export class PrismaBoss extends Enemy {
     private crystalizeActiveValue = false;
     private crystalizePatternStarted = false;
     private crystalizeElapsed = 0;
+    private fragmentFreezeSignature = "";
     private crystal?: CrystalizePrism;
     private actionEpoch = 0;
 
@@ -94,10 +95,7 @@ export class PrismaBoss extends Enemy {
         return this.crystalizeCooldownRemaining;
     }
 
-    /**
-     * Charge Beam never harms Prisma. Each successful pulse instead restores
-     * health and refreshes a five-second reflective-beam buff.
-     */
+    /** Charge Beam never harms Prisma; it heals and triggers beam fury. */
     absorbChargeBeamHit(_damage: number): void {
         if (!this.alive || GameState.status !== "boss") {
             return;
@@ -143,6 +141,7 @@ export class PrismaBoss extends Enemy {
             this.crystalizeCooldownRemaining - delta
         );
         this.trimDeadBeams();
+        this.syncFrozenFragmentChains();
         this.updatePhaseTransitions();
 
         if (this.crystalizeActiveValue) {
@@ -180,6 +179,7 @@ export class PrismaBoss extends Enemy {
         this.scheduler.cancel();
         this.clearBeams(this.attackBeams);
         this.clearBeams(this.chainBeams);
+        this.fragmentFreezeSignature = "";
         this.clearBeams(this.crystalizeBeams);
 
         for (const fragment of this.fragmentsValue) {
@@ -442,6 +442,7 @@ export class PrismaBoss extends Enemy {
         }
 
         this.clearBeams(this.chainBeams);
+        this.fragmentFreezeSignature = this.currentFragmentFreezeSignature();
         for (const [first, second] of this.constellationTree()) {
             this.spawnBeam(
                 this.chainBeams,
@@ -541,11 +542,15 @@ export class PrismaBoss extends Enemy {
         // The phase-three reference is a lattice: both rectangles are closed
         // four-corner rings. Each fragment therefore has exactly two
         // fragment-chain links, without a nearest-neighbor topology.
-        this.spawnRectangleRing(outerRing);
-        this.spawnRectangleRing(innerRing);
+        this.spawnRectangleRing(outerRing, crystalize.duration);
+        this.spawnRectangleRing(innerRing, crystalize.duration);
 
         // CrystalizePrism reaches the four inner rectangle corners exactly.
         for (const fragment of innerRing) {
+            if (fragment.isCryoFrozen) {
+                continue;
+            }
+
             this.spawnBeam(
                 this.crystalizeBeams,
                 crystal,
@@ -555,6 +560,8 @@ export class PrismaBoss extends Enemy {
                 crystalize.fragmentBeamDamage
             );
         }
+
+        this.fragmentFreezeSignature = this.currentFragmentFreezeSignature();
     }
 
     private updateCrystalize(delta: number): void {
@@ -581,6 +588,7 @@ export class PrismaBoss extends Enemy {
         this.clearBeams(this.crystalizeBeams);
 
         this.relocatePhaseTwoFragments();
+        this.fragmentFreezeSignature = "";
 
         const returningCrystal = this.crystal;
         // Like the Crystalize deploy sequence, this reverse sequence belongs
@@ -690,11 +698,17 @@ export class PrismaBoss extends Enemy {
         baseWidth: number,
         baseDamage: number
     ): PrismaBeam {
+        const wipePlayerBullets =
+            Math.random() < PRISMA_DEFINITION.beamBulletWipeChance;
         const beam = new PrismaBeam(start, end, {
             activeDuration,
             baseWidth,
             baseDamage,
-            modifier: () => this.currentBeamModifier(baseWidth, baseDamage)
+            modifier: () => this.currentBeamModifier(
+                baseWidth,
+                baseDamage,
+                wipePlayerBullets
+            )
         });
         bucket.add(beam);
         World.add(beam);
@@ -703,22 +717,27 @@ export class PrismaBoss extends Enemy {
 
     private currentBeamModifier(
         baseWidth: number,
-        baseDamage: number
-    ): { width: number; damage: number; wipePlayerBullets: boolean } | undefined {
+        baseDamage: number,
+        wipePlayerBullets: boolean
+    ): { width: number; damage: number; wipePlayerBullets: boolean } {
         if (!this.beamFuryActive) {
-            return undefined;
+            return {
+                width: baseWidth,
+                damage: baseDamage,
+                wipePlayerBullets
+            };
         }
 
         return {
             width: baseWidth * PRISMA_DEFINITION.beamFury.widthMultiplier,
             damage: baseDamage * PRISMA_DEFINITION.beamFury.damageMultiplier,
-            wipePlayerBullets: true
+            wipePlayerBullets
         };
     }
 
     /** Build the nearest connected tree for the current constellation sites. */
     private constellationTree(): Array<[PrismaFragment, PrismaFragment]> {
-        const fragments = this.liveFragments();
+        const fragments = this.chainableFragments();
         if (fragments.length < 2) {
             return [];
         }
@@ -844,7 +863,10 @@ export class PrismaBoss extends Enemy {
     }
 
     /** Add a closed four-corner lattice ring using the live fragment endpoints. */
-    private spawnRectangleRing(ring: readonly PrismaFragment[]): void {
+    private spawnRectangleRing(
+        ring: readonly PrismaFragment[],
+        activeDuration: number
+    ): void {
         const crystalize = PRISMA_DEFINITION.crystalize;
         if (ring.length < 2) {
             return;
@@ -852,11 +874,15 @@ export class PrismaBoss extends Enemy {
 
         for (let index = 0; index < ring.length; index += 1) {
             const next = ring[(index + 1) % ring.length];
+            if (ring[index].isCryoFrozen || next.isCryoFrozen) {
+                continue;
+            }
+
             this.spawnBeam(
                 this.crystalizeBeams,
                 ring[index],
                 next,
-                crystalize.duration,
+                activeDuration,
                 crystalize.fragmentBeamWidth,
                 crystalize.fragmentBeamDamage
             );
@@ -865,6 +891,85 @@ export class PrismaBoss extends Enemy {
 
     private liveFragments(): PrismaFragment[] {
         return this.fragmentsValue.filter(fragment => fragment.alive);
+    }
+
+    private chainableFragments(): PrismaFragment[] {
+        return this.fragmentsValue.filter(
+            fragment => fragment.alive && !fragment.isCryoFrozen
+        );
+    }
+
+    private syncFrozenFragmentChains(): void {
+        if (!this.phaseTwoDeployed) {
+            return;
+        }
+
+        const signature = this.currentFragmentFreezeSignature();
+        if (signature === this.fragmentFreezeSignature) {
+            return;
+        }
+
+        this.fragmentFreezeSignature = signature;
+        if (this.crystalizeActiveValue) {
+            if (this.crystalizePatternStarted) {
+                this.rebuildCrystalizeFragmentLinks();
+            }
+            return;
+        }
+
+        if (!this.phaseTwoTransitioning) {
+            this.rebuildPhaseTwoChains();
+        }
+    }
+
+    private rebuildCrystalizeFragmentLinks(): void {
+        const crystal = this.crystal;
+        if (!crystal) {
+            return;
+        }
+
+        this.clearFragmentLinkedBeams(this.crystalizeBeams);
+        const crystalize = PRISMA_DEFINITION.crystalize;
+        const remainingDuration = Math.max(
+            0.05,
+            crystalize.duration - this.crystalizeElapsed
+        );
+        const { outerRing, innerRing } = this.crystalizeRings();
+
+        this.spawnRectangleRing(outerRing, remainingDuration);
+        this.spawnRectangleRing(innerRing, remainingDuration);
+        for (const fragment of innerRing) {
+            if (fragment.isCryoFrozen) {
+                continue;
+            }
+
+            this.spawnBeam(
+                this.crystalizeBeams,
+                crystal,
+                fragment,
+                remainingDuration,
+                crystalize.fragmentBeamWidth,
+                crystalize.fragmentBeamDamage
+            );
+        }
+
+        this.fragmentFreezeSignature = this.currentFragmentFreezeSignature();
+    }
+
+    private clearFragmentLinkedBeams(beams: BeamBucket): void {
+        const fragments = this.liveFragments();
+        for (const beam of beams) {
+            if (fragments.some(fragment => beam.hasEndpoint(fragment))) {
+                beam.kill();
+                beams.delete(beam);
+            }
+        }
+    }
+
+    private currentFragmentFreezeSignature(): string {
+        return this.fragmentsValue.map(fragment =>
+            `${fragment.alive ? "1" : "0"}${fragment.isCryoFrozen ? "1" : "0"}`
+        ).join("|");
     }
 
     private findLivePlayer(): Player | undefined {

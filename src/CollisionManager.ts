@@ -13,6 +13,7 @@ import { CryoSink } from "./CryoSink.js";
 import { Game } from "./Game.js";
 import { PrismaBeam } from "./PrismaBeam.js";
 import { PrismaBoss } from "./PrismaBoss.js";
+import { PrismaFragment } from "./PrismaFragment.js";
 
 export class CollisionManager extends GObject {
     override Update(): void {
@@ -32,8 +33,19 @@ export class CollisionManager extends GObject {
         this.applyCryoSinkEffects();
 
         for (const a of World.entities) {
+            // PrismaBeam resolves its line-segment effects above. It has no
+            // ordinary Entity collision rule, so including it in this
+            // all-pairs rectangle pass only adds dead work.
+            if (a instanceof PrismaBeam) {
+                continue;
+            }
+
             for (const b of World.entities) {
                 if (a === b) {
+                    continue;
+                }
+
+                if (b instanceof PrismaBeam) {
                     continue;
                 }
 
@@ -106,6 +118,8 @@ export class CollisionManager extends GObject {
 
                 if (target instanceof Enemy) {
                     target.applyCryoExposure(Game.deltaTime);
+                } else if (target instanceof PrismaFragment) {
+                    target.applyCryoExposure(Game.deltaTime);
                 } else if (target instanceof EnemyBullet && !target.beam) {
                     // A normal projectile is discrete energy and is drained
                     // immediately. EnemyBeam is intentionally not matched.
@@ -171,8 +185,7 @@ export class CollisionManager extends GObject {
             a instanceof ChargeBeam &&
             b instanceof PrismaBoss
         ) {
-            // Prisma reflects the Charge Beam: one pulse heals instead of
-            // dealing damage and refreshes its five-second beam-fury state.
+            // Prisma reflects the Charge Beam as healing/rage, not damage.
             if (a.tryHit(b)) b.absorbChargeBeamHit(10);
         } else if (
             a instanceof ChargeBeam &&

@@ -14,8 +14,7 @@ if (!canvas) {
     throw new Error("Missing #game canvas");
 }
 
-canvas.width = GameFrame.width;
-canvas.height = GameFrame.height;
+GameFrame.mount(canvas);
 
 Input.initialize(canvas);
 ScoreSystem.reset();

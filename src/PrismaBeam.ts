@@ -139,6 +139,11 @@ export class PrismaBeam extends Entity {
         };
     }
 
+    hasEndpoint(entity: Entity): boolean {
+        return endpointTargetsEntity(this.startEndpoint, entity) ||
+            endpointTargetsEntity(this.endEndpoint, entity);
+    }
+
     /**
      * Tests the active beam's thick line segment against an Entity rectangle.
      * Pass a currentValues.width snapshot to prevent a second modifier call.
@@ -238,6 +243,22 @@ function resolveEndpoint(endpoint: PrismaBeamEndpoint): Vector2 {
     }
 
     return { x: source.x, y: source.y };
+}
+
+function endpointTargetsEntity(
+    endpoint: PrismaBeamEndpoint,
+    entity: Entity
+): boolean {
+    if (endpoint instanceof Entity) {
+        return endpoint === entity;
+    }
+
+    if (typeof endpoint !== "function") {
+        return false;
+    }
+
+    const source = endpoint();
+    return source instanceof Entity && source === entity;
 }
 
 function requirePositiveFinite(value: number, name: string): number {

@@ -1,3 +1,5 @@
+import { GameFrame } from "./GameFrame.js";
+
 export type PointerClick = { x: number; y: number };
 
 export class Input {
@@ -27,11 +29,11 @@ export class Input {
 
         if (canvas) {
             canvas.addEventListener("pointerup", event => {
-                const bounds = canvas.getBoundingClientRect();
-                this.pointerClicks.push({
-                    x: (event.clientX - bounds.left) * canvas.width / bounds.width,
-                    y: (event.clientY - bounds.top) * canvas.height / bounds.height
-                });
+                this.pointerClicks.push(GameFrame.clientToFrame(
+                    canvas,
+                    event.clientX,
+                    event.clientY
+                ));
             });
         }
     }

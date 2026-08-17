@@ -15,6 +15,7 @@ export const PRISMA_DEFINITION = {
     followSpeed: 205,
     phaseTwoHealthRatio: 0.5,
     phaseThreeHealthRatio: 0.25,
+    beamBulletWipeChance: 0.1,
 
     beamFury: {
         duration: 5,
@@ -53,6 +54,9 @@ export const PRISMA_DEFINITION = {
         constellationLinkDuration: 30,
         chainWidth: 12,
         chainDamage: 18,
+        cryoBuildDuration: 0.35,
+        cryoFreezeDuration: 2,
+        cryoDrainDecayPerSecond: 0.85,
 
         /**
          * Phase two chooses each reflection destination independently across
@@ -97,7 +101,7 @@ export const PRISMA_DEFINITION = {
         outwardSpeed:
             PLAYER_MOVEMENT_REFERENCE_SPEED *
             CRYSTALIZE_OUTWARD_SPEED_MULTIPLIER,
-        rotationRadiansPerSecond: 0.012
+        rotationRadiansPerSecond: 0.12
     }
 } as const;
 

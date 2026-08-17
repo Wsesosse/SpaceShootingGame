@@ -33,6 +33,8 @@ export class SessionManager extends GObject {
             return;
         }
 
+        GameState.tickRunTime(Game.deltaTime);
+
         if (
             (GameState.status === "gameOver" || GameState.status === "won") &&
             Input.consumePress("Enter") &&
