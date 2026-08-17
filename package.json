@@ -6,7 +6,8 @@
     "smoke:sprite": "npm run build && node --experimental-default-type=module test/sprite-api.smoke.mjs",
     "smoke:scheduler": "npm run build && node --experimental-default-type=module test/action-scheduler.smoke.mjs",
     "smoke:prisma": "npm run build && node --experimental-default-type=module test/prisma-boss.smoke.mjs",
-    "smoke:homing": "npm run build && node --experimental-default-type=module test/homing-bullet.smoke.mjs"
+    "smoke:homing": "npm run build && node --experimental-default-type=module test/homing-bullet.smoke.mjs",
+    "smoke:shield": "npm run build && node --experimental-default-type=module test/shield.smoke.mjs"
   },
   "dependencies": {
     "typescript": "^7.0.2"

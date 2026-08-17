@@ -22,6 +22,8 @@ export class Player extends Entity {
     static readonly homingBaseRadius = 150;
     static readonly homingRadiusPerLevel = 90;
     static readonly homingTurnRate = 2.4;
+    static readonly shieldOverflowDamageMultiplier = 2.25;
+    static readonly shieldRechargeRate = 2;
 
     speed: number = 300;
     maxHealth = 100;
@@ -207,6 +209,14 @@ export class Player extends Entity {
         ) return;
 
         if (this.shieldActive) {
+            const currentShield = this.shield;
+            if (damage > currentShield * Player.shieldOverflowDamageMultiplier) {
+                this.shield = 0;
+                this.shieldToggled = false;
+                this.applyHealthDamage(damage - currentShield);
+                return;
+            }
+
             this.shield = Math.max(0, this.shield - damage);
             if (this.shield === 0) {
                 this.shieldToggled = false;
@@ -215,6 +225,10 @@ export class Player extends Entity {
             return;
         }
 
+        this.applyHealthDamage(damage);
+    }
+
+    private applyHealthDamage(damage: number): void {
         this.health = Math.max(0, this.health - damage);
         this.iframeTime = 1.2;
 
@@ -245,7 +259,10 @@ export class Player extends Entity {
         }
 
         if (!this.shieldActive) {
-            this.shield = Math.min(this.maxShield, this.shield + Game.deltaTime);
+            this.shield = Math.min(
+                this.maxShield,
+                this.shield + Game.deltaTime * Player.shieldRechargeRate
+            );
         }
 
         if (Input.consumePress("KeyK") && GameState.has("heal") && this.healCooldown === 0) {
