@@ -159,7 +159,7 @@ export class Enemy extends Entity {
                 this,
                 Math.round(30 * GameState.enemyDamageMultiplier)
             ));
-            this.shootCooldown = 2.2;
+            this.shootCooldown = 5;
             return;
         }
 
