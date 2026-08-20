@@ -170,7 +170,7 @@ export class Enemy extends Entity {
         const dx = player.position.x + player.size.x / 2 - origin.x;
         const dy = player.position.y + player.size.y / 2 - origin.y;
         const length = Math.hypot(dx, dy) || 1;
-        const speed = 230;
+        const speed = 100;
         const baseDamage = this.kind === "boss" ? 20 : 15;
         World.add(new EnemyBullet(
             origin,
