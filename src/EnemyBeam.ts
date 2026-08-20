@@ -8,7 +8,7 @@ export class EnemyBeam extends Entity {
 
     constructor(
         private readonly shooter: Entity,
-        readonly damage = 30
+        readonly damage = 22
     ) {
         super({ ...shooter.position }, { x: 14, y: GameFrame.height });
     }
